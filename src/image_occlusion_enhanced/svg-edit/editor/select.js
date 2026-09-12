@@ -128,6 +128,25 @@ svgedit.select.Selector.prototype.showGrips = function(show) {
 	selectorManager_.selectorGripsGroup.setAttribute('display', bShow);
 	var elem = this.selectedElement;
 	this.hasGrips = show;
+
+	// --- Image Occlusion Enhanced patch ----------------------------------
+	// Text elements only get the four corner grips. Dragging an edge grip used
+	// to bake a one-axis scale matrix onto the <text> (see remapElement in
+	// svgcanvas.js), which smears the glyphs; the corners now drive font-size
+	// instead. The rotate grip is unaffected.
+	//
+	// selectorGripsGroup is a single shared group that gets re-parented
+	// between selectors, so every grip's display has to be set on every call -
+	// otherwise a grip hidden for a text stays hidden for the next shape.
+	var isText = !!(elem && elem.tagName === 'text');
+	var edgeDirs = ['n', 'e', 's', 'w'];
+	for (var dir in selectorManager_.selectorGrips) {
+		var hideGrip = show && isText && edgeDirs.indexOf(dir) !== -1;
+		selectorManager_.selectorGrips[dir].setAttribute(
+			'display', hideGrip ? 'none' : 'inline');
+	}
+	// --- end Image Occlusion Enhanced patch ------------------------------
+
 	if(elem && show) {
 		this.selectorGroup.appendChild(selectorManager_.selectorGripsGroup);
 		this.updateGripCursors(svgedit.utilities.getRotationAngle(elem));

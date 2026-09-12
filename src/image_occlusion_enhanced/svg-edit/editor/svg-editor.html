@@ -10,7 +10,22 @@
 <link rel="stylesheet" href="jgraduate/css/jPicker.css" type="text/css"/>
 <link rel="stylesheet" href="jgraduate/css/jgraduate.css" type="text/css"/>
 <link rel="stylesheet" href="svg-editor.css" type="text/css"/>
+<script type="text/javascript">
+// Image Occlusion Enhanced: apply the theme before first paint so the editor
+// never flashes the wrong colours. Deliberately not routed through svg-edit's
+// own query-string parsing, which runs much later during startup.
+(function () {
+  try {
+    var t = new URLSearchParams(location.search).get("io_theme");
+    document.documentElement.dataset.ioTheme = t === "dark" ? "dark" : "light";
+  } catch (e) {
+    document.documentElement.dataset.ioTheme = "light";
+  }
+})();
+</script>
 <link rel="stylesheet" href="spinbtn/JQuerySpinBtn.css" type="text/css"/>
+<!-- Image Occlusion Enhanced: modern theme layer, must follow every other stylesheet -->
+<link rel="stylesheet" href="io-theme.css" type="text/css"/>
 
 <!-- 
 Modifications by Glutanimate:
@@ -382,7 +397,9 @@ Modifications by Glutanimate:
 		</label>
 		
 		<!-- Not visible, but still used -->
-		<input id="text" type="text" size="35"/>
+		<!-- IOE: a textarea rather than an input, so labels can hold line breaks.
+     It doubles as the floating edit overlay; see io-theme.css #text. -->
+<textarea id="text" rows="1" wrap="off" spellcheck="false"></textarea>
 	</div>
 
 	<!-- formerly gsvg_panel -->

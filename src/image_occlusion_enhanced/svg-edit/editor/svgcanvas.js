@@ -2355,6 +2355,10 @@ var getMouseTarget = this.getMouseTarget = function(evt) {
 		r_start_x = null,
 		r_start_y = null,
 		init_bbox = {},
+		// IOE: set while a <text> is being resized by a corner grip; see the
+		// "resize" cases below. Non-null means font-size is being driven
+		// instead of a scale transform.
+		text_resize = null,
 		freehand = {
 			minx: null,
 			miny: null,
@@ -2526,7 +2530,36 @@ var getMouseTarget = this.getMouseTarget = function(evt) {
 				started = true;
 				start_x = x;
 				start_y = y;
-				
+
+				// --- Image Occlusion Enhanced patch -----------------------
+				// Resizing a <text> scales its font instead of stretching it.
+				// The stock path appends three dummy transforms here that
+				// recalculateDimensions() later collapses into a matrix on the
+				// element (remapElement, ~line 1180), which is what smeared the
+				// glyphs. Bail out before that happens and drive font-size from
+				// the corner drag in mouseMove instead.
+				text_resize = null;
+				if (mouse_target && mouse_target.tagName === 'text') {
+					var t_bbox = svgedit.utilities.getBBox(mouse_target);
+					text_resize = {
+						elem: mouse_target,
+						dir: current_resize_mode,
+						fontSize: parseFloat(mouse_target.getAttribute('font-size')) || 16,
+						width: t_bbox.width || 1,
+						height: t_bbox.height || 1,
+						// The corner opposite the one being dragged stays put.
+						anchorX: current_resize_mode.indexOf('w') !== -1
+							? t_bbox.x + t_bbox.width : t_bbox.x,
+						anchorY: current_resize_mode.indexOf('n') !== -1
+							? t_bbox.y + t_bbox.height : t_bbox.y
+					};
+					canvas.undoMgr.beginUndoableChange('font-size', [mouse_target]);
+					canvas.undoMgr.beginUndoableChange('x', [mouse_target]);
+					canvas.undoMgr.beginUndoableChange('y', [mouse_target]);
+					break;
+				}
+				// --- end Image Occlusion Enhanced patch -------------------
+
 				// Getting the BBox from the selection box, since we know we
 				// want to orient around it
 				init_bbox = svgedit.utilities.getBBox($('#selectedBox0')[0]);
@@ -2879,6 +2912,37 @@ var getMouseTarget = this.getMouseTarget = function(evt) {
 					
 				break;
 			case "resize":
+				// --- Image Occlusion Enhanced patch -----------------------
+				// Text: one uniform factor derived from how far the pointer is
+				// from the anchored corner, applied to font-size. Never a
+				// transform, so the glyphs keep their proportions.
+				if (text_resize) {
+					var tr = text_resize, tr_elem = tr.elem;
+					var factor = Math.max(
+						Math.abs(x - tr.anchorX) / tr.width,
+						Math.abs(y - tr.anchorY) / tr.height);
+					var new_size = Math.max(5, Math.round(tr.fontSize * factor));
+
+					tr_elem.setAttribute('font-size', new_size);
+
+					// Re-anchor so the opposite corner does not drift. x is the
+					// horizontal centre here, because text is created with
+					// text-anchor="middle".
+					var nb = svgedit.utilities.getBBox(tr_elem);
+					var edge_x = tr.dir.indexOf('w') !== -1 ? nb.x + nb.width : nb.x;
+					var edge_y = tr.dir.indexOf('n') !== -1 ? nb.y + nb.height : nb.y;
+					tr_elem.setAttribute('x',
+						(parseFloat(tr_elem.getAttribute('x')) || 0) + (tr.anchorX - edge_x));
+					tr_elem.setAttribute('y',
+						(parseFloat(tr_elem.getAttribute('y')) || 0) + (tr.anchorY - edge_y));
+					svgedit.utilities.syncTextLineAnchors(tr_elem);
+
+					selectorManager.requestSelector(tr_elem).resize();
+					call("transition", selectedElements);
+					break;
+				}
+				// --- end Image Occlusion Enhanced patch -------------------
+
 				// we track the resize bounding box and translate/scale the selected element
 				// while the mouse is down, when mouse goes up, we use this to recalculate
 				// the shape's coordinates
@@ -3189,6 +3253,24 @@ var getMouseTarget = this.getMouseTarget = function(evt) {
 		{
 			// intentionally fall-through to select here
 			case "resize":
+				// --- Image Occlusion Enhanced patch -----------------------
+				// Close the font-size drag as a single undo step and skip the
+				// recalculate pass, which would otherwise re-introduce a matrix.
+				if (text_resize) {
+					var tr_elem = text_resize.elem;
+					text_resize = null;
+					var tr_batch = new svgedit.history.BatchCommand("Resize Text");
+					for (var tr_i = 0; tr_i < 3; tr_i++) {
+						var tr_cmd = canvas.undoMgr.finishUndoableChange();
+						if (!tr_cmd.isEmpty()) tr_batch.addSubCommand(tr_cmd);
+					}
+					if (!tr_batch.isEmpty()) addCommandToHistory(tr_batch);
+					selectorManager.requestSelector(tr_elem).resize();
+					current_mode = "select";
+					call("changed", [tr_elem]);
+					return;
+				}
+				// --- end Image Occlusion Enhanced patch -------------------
 			case "multiselect":
 				if (rubberBox != null) {
 					rubberBox.setAttribute("display", "none");
@@ -3577,8 +3659,89 @@ var textActions = canvas.textActions = function() {
 	var matrix;
 	var last_x, last_y;
 	var allow_dbl;
-	
+
+	// --- Image Occlusion Enhanced patch ----------------------------------
+	// Text is edited in a floating <textarea> laid over the element instead of
+	// through svg-edit's on-canvas caret. That buys real multi-line editing
+	// plus native selection, IME and clipboard handling, and sidesteps the
+	// per-character caret maths below, which assumes one flat text run.
+	var overlay_active = false;
+	var OVERLAY_PAD = 6;
+
+	function lineHeight() {
+		return svgedit.utilities.TEXT_LINE_HEIGHT;
+	}
+
+	function positionOverlay() {
+		if (!overlay_active || !curtext || !textinput) return;
+		var rect;
+		try {
+			rect = curtext.getBoundingClientRect();
+		} catch (e) {
+			return;
+		}
+
+		var font_size = parseFloat(curtext.getAttribute('font-size')) || 16;
+		var screen_size = font_size * current_zoom;
+		var lines = String(textinput.value || '').split('\n').length;
+		var line_px = screen_size * lineHeight();
+		var height = Math.max(rect.height, lines * line_px);
+		var width = Math.max(rect.width, screen_size * 4);
+		var st = textinput.style;
+
+		// Fixed positioning: the work area scrolls and the overlay would
+		// otherwise need an offset parent that tracks it.
+		st.position = 'fixed';
+		st.display = 'block';
+		st.fontSize = screen_size + 'px';
+		st.lineHeight = String(lineHeight());
+		st.fontFamily = curtext.getAttribute('font-family') || 'sans-serif';
+		// The overlay itself stays invisible - what the user sees is the SVG
+		// text underneath, updated live as they type. Only the caret is drawn,
+		// so typing feels like it happens directly on the image.
+		st.color = 'transparent';
+		st.textAlign = 'center';
+		st.width = (width + OVERLAY_PAD * 2) + 'px';
+		st.height = (height + OVERLAY_PAD) + 'px';
+		st.left = (rect.left + rect.width / 2 - (width / 2 + OVERLAY_PAD)) + 'px';
+		st.top = (rect.top + rect.height / 2 - (height + OVERLAY_PAD) / 2) + 'px';
+	}
+
+	function showOverlay() {
+		if (!textinput) return;
+		overlay_active = true;
+		$(textinput).addClass('io-text-overlay');
+		positionOverlay();
+		textinput.focus();
+		try {
+			var end = textinput.value.length;
+			textinput.setSelectionRange(end, end);
+		} catch (e) {}
+	}
+
+	function hideOverlay() {
+		if (!textinput) return;
+		overlay_active = false;
+		$(textinput).removeClass('io-text-overlay');
+		var st = textinput.style;
+		var props = ['position', 'display', 'fontSize', 'lineHeight', 'fontFamily',
+			'color', 'textAlign', 'width', 'height', 'left', 'top'];
+		for (var i = 0; i < props.length; i++) st[props[i]] = '';
+		// Park it off-screen again rather than relying on a stylesheet
+		// fallback. It stays in the document (and focusable) because
+		// svg-editor.js still focuses it when a new text element is created.
+		st.position = 'absolute';
+		st.left = '-9999px';
+		st.top = '0';
+	}
+	// --- end Image Occlusion Enhanced patch ------------------------------
+
 	function setCursor(index) {
+		// IOE: the textarea draws its own caret while the overlay is up.
+		if (overlay_active) {
+			if (textinput) $(textinput).focus();
+			return;
+		}
 		var empty = (textinput.value === "");
 		$(textinput).focus();
 	
@@ -3596,6 +3759,11 @@ var textActions = canvas.textActions = function() {
 		if(!empty) {
 			textinput.setSelectionRange(index, index);
 		}
+		// IOE: chardata is indexed by *rendered* character, and a multi-line
+		// value has more string positions than rendered characters (newlines
+		// are not drawn). Bail out rather than dereference a missing entry -
+		// stock svg-edit assumed the two counts could never diverge.
+		if(!charbb) return;
 		cursor = getElem("text_cursor");
 		if (!cursor) {
 			cursor = document.createElementNS(svgns, "line");
@@ -3632,6 +3800,8 @@ var textActions = canvas.textActions = function() {
 	}
 	
 	function setSelection(start, end, skipInput) {
+		// IOE: selection highlight is the textarea's job while editing.
+		if (overlay_active) return;
 		if(start === end) {
 			setCursor(end);
 			return;
@@ -3679,6 +3849,9 @@ var textActions = canvas.textActions = function() {
 	}
 	
 	function getIndexFromPoint(mouse_x, mouse_y) {
+		// IOE: chardata is only populated for single-line text now, so this
+		// can be asked about a position it has no entry for.
+		if (!chardata || !chardata.length) return 0;
 		// Position cursor here
 		var pt = svgroot.createSVGPoint();
 		pt.x = mouse_x;
@@ -3799,23 +3972,26 @@ var textActions = canvas.textActions = function() {
 		},
 		mouseDown: function(evt, mouse_target, start_x, start_y) {
 			var pt = screenToPt(start_x, start_y);
-		
+
 			textinput.focus();
-			setCursorFromPoint(pt.x, pt.y);
+			// IOE: with the overlay up the textarea places its own caret; we
+			// only need last_x/last_y so mouseUp can detect a click-outside.
+			if (!overlay_active) setCursorFromPoint(pt.x, pt.y);
 			last_x = start_x;
 			last_y = start_y;
 			
 			// TODO: Find way to block native selection
 		},
 		mouseMove: function(mouse_x, mouse_y) {
+			if (overlay_active) return;  // IOE
 			var pt = screenToPt(mouse_x, mouse_y);
 			setEndSelectionFromPoint(pt.x, pt.y);
 		},			
 		mouseUp: function(evt, mouse_x, mouse_y) {
 			var pt = screenToPt(mouse_x, mouse_y);
 			
-			setEndSelectionFromPoint(pt.x, pt.y, true);
-			
+			if (!overlay_active) setEndSelectionFromPoint(pt.x, pt.y, true);  // IOE
+
 			// TODO: Find a way to make this work: Use transformed BBox instead of evt.target 
 // 				if(last_x === mouse_x && last_y === mouse_y
 // 					&& !svgedit.math.rectsIntersect(transbb, {x: pt.x, y: pt.y, width:0, height:0})) {
@@ -3842,6 +4018,7 @@ var textActions = canvas.textActions = function() {
 			var sel = selectorManager.requestSelector(curtext).selectorRect;
 			
 			textActions.init();
+			showOverlay();  // IOE
 
 			$(curtext).css('cursor', 'text');
 			
@@ -3862,6 +4039,7 @@ var textActions = canvas.textActions = function() {
 			}, 300);
 		},
 		toSelectMode: function(selectElem) {
+			hideOverlay();  // IOE
 			current_mode = "select";
 			clearInterval(blinker);
 			blinker = null;
@@ -3876,7 +4054,10 @@ var textActions = canvas.textActions = function() {
 				call("selected", [curtext]);
 				addToSelection([curtext], true);
 			}
-			if(curtext && !curtext.textContent.length) {
+			// IOE: empty lines are padded with a zero-width space to keep
+			// their line box, so a plain textContent length check would think
+			// a blank multi-line label still had content.
+			if(curtext && svgedit.utilities.isTextContentBlank(curtext)) {
 				// No content, so delete
 				canvas.deleteSelectedElements();
 			}
@@ -3889,8 +4070,15 @@ var textActions = canvas.textActions = function() {
 // 					curtext.removeAttribute('editable');
 // 				}
 		},
+		repositionOverlay: positionOverlay,  // IOE
+		isOverlayActive: function() { return overlay_active; },  // IOE
 		setInputElem: function(elem) {
 			textinput = elem;
+			// IOE: reparent to <body> so the fixed-position overlay is never
+			// clipped by the toolbar it is markup-nested in.
+			if (elem && elem.parentNode !== document.body) {
+				document.body.appendChild(elem);
+			}
 // 			$(textinput).blur(hideCursor);
 		},
 		clear: function() {
@@ -3912,9 +4100,19 @@ var textActions = canvas.textActions = function() {
 				selectorManager.requestSelector(curtext).showGrips(false);
 			}
 			
-			var str = curtext.textContent;
+			// IOE: read multi-line content back as "\n"-joined lines.
+			var str = svgedit.utilities.getTextContentLines(curtext);
+			// Newlines are not rendered characters, so the per-character caret
+			// map has to be sized from the element's own character count.
 			var len = str.length;
-			
+			try {
+				if (typeof curtext.getNumberOfChars === 'function') {
+					len = Math.min(len, curtext.getNumberOfChars());
+				}
+			} catch (e) {
+				len = 0;
+			}
+
 			var xform = curtext.getAttribute('transform');
 
 			textbb = svgedit.utilities.getBBox(curtext);
@@ -3931,9 +4129,16 @@ var textActions = canvas.textActions = function() {
 			}
 			
 			for(var i=0; i<len; i++) {
-				var start = curtext.getStartPositionOfChar(i);
-				var end = curtext.getEndPositionOfChar(i);
-				
+				var start, end;
+				try {
+					start = curtext.getStartPositionOfChar(i);
+					end = curtext.getEndPositionOfChar(i);
+				} catch (e) {
+					// IOE: bail out rather than throw; the overlay owns the
+					// caret, so an incomplete map is harmless.
+					break;
+				}
+
 				if(!svgedit.browser.supportsGoodTextCharPos()) {
 					var offset = canvas.contentW * current_zoom;
 					start.x -= offset;
@@ -4890,7 +5095,23 @@ var pathActions = canvas.pathActions = function() {
 		},
 		// Convert a path to one with only absolute or relative values
 		convertPath: function(path, toRel) {
+			// --- Image Occlusion Enhanced patch -------------------------
+			// SVGPathElement.pathSegList was removed from Chromium in 2016,
+			// and svg-edit 2.6 predates that. Without this guard, serialising
+			// any document containing a <path> throws
+			// "Cannot read properties of undefined (reading 'numberOfItems')",
+			// svgCanvasToString() returns nothing, and adding cards dies with
+			// "'NoneType' object has no attribute 'encode'" - issues #86,
+			// #116 and #331. Arrowheads hit it because the markers svg-edit
+			// injects into <defs> are themselves paths.
+			//
+			// This conversion only normalises d to absolute/relative form, so
+			// handing back the attribute untouched is valid SVG either way.
 			var segList = path.pathSegList;
+			if (!segList) {
+				return path.getAttribute('d') || '';
+			}
+			// --- end Image Occlusion Enhanced patch ---------------------
 			var len = segList.numberOfItems;
 			var curx = 0, cury = 0;
 			var d = "";
@@ -7450,6 +7671,14 @@ this.getText = function() {
 	return selected.textContent;
 };
 
+// Function: getTextContentLines
+// IOE: returns the given text element's content with "\n" between its lines.
+// Exposed so the editor UI can populate the text overlay from a <text> that
+// stores its lines as <tspan> children.
+this.getTextContentLines = function(elem) {
+	return svgedit.utilities.getTextContentLines(elem || selectedElements[0]);
+};
+
 // Function: setTextContent
 // Updates the text element with the given string
 //
@@ -7813,12 +8042,17 @@ var changeSelectedAttributeNoUndo = function(attr, newValue, elems) {
 		// only allow the transform/opacity/filter attribute to change on <g> elements, slightly hacky
 		// TODO: FIXME: This doesn't seem right.  Where's the body of this if statement?
 		if (elem.tagName === "g" && good_g_attrs.indexOf(attr) >= 0);
-		var oldval = attr === "#text" ? elem.textContent : elem.getAttribute(attr);
+		// IOE: read multi-line text back as "\n"-joined lines, not a flat run
+		var oldval = attr === "#text"
+			? svgedit.utilities.getTextContentLines(elem)
+			: elem.getAttribute(attr);
 		if (oldval == null)  oldval = "";
 		if (oldval !== String(newValue)) {
 			if (attr == "#text") {
 				var old_w = svgedit.utilities.getBBox(elem).width;
-				elem.textContent = newValue;
+				// IOE: splits on newlines into <tspan> lines; single-line values
+				// still produce a plain text node, exactly as before.
+				svgedit.utilities.setTextContentLines(elem, newValue);
 				
 				// FF bug occurs on on rotated elements
 				if(/rotate/.test(elem.getAttribute('transform'))) {

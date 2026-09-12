@@ -307,10 +307,16 @@
 			} else {
 				extFunc();
 			}
-			$.svgIcons(curConfig.imgPath + 'svg_edit_icons.svg', {
+			// --- Image Occlusion Enhanced patch -------------------------------
+			// Swapped the stock skeuomorphic sprite for a monochrome one, and
+			// forced no_img so icons are injected as inline <svg> rather than
+			// as <img> data URIs. Inline is required for the icons to inherit
+			// currentColor, which is how io-theme.css recolours them per theme.
+			$.svgIcons(curConfig.imgPath + 'io_icons.svg', {
 				w:24, h:24,
 				id_match: false,
- 				no_img: !svgedit.browser.isWebkit(), // Opera & Firefox 4 gives odd behavior w/images
+ 				no_img: true,
+			// --- end Image Occlusion Enhanced patch ---------------------------
 				fallback_path: curConfig.imgPath,
 				fallback:{
 					'new_image':'clear.png',
@@ -1358,10 +1364,14 @@
 					if (svgicons)
 						cb_ready = false; // Delay callback
 
+					// --- Image Occlusion Enhanced patch ---------------------
+					// no_img forced on so extension icons are inline <svg> and
+					// pick up currentColor, same as the main sprite above.
 					$.svgIcons(svgicons, {
 						w:24, h:24,
 						id_match: false,
-						no_img: (!isWebkit),
+						no_img: true,
+					// --- end Image Occlusion Enhanced patch -----------------
 						fallback: fallback_obj,
 						placement: placement_obj,
 						callback: function(icons) {
@@ -1678,7 +1688,8 @@
 							}
 							$('#font_family').val(elem.getAttribute("font-family"));
 							$('#font_size').val(elem.getAttribute("font-size"));
-							$('#text').val(elem.textContent);
+							// IOE: read tspan lines back as "\n"-joined text
+							$('#text').val(svgCanvas.getTextContentLines(elem));
 							if (svgCanvas.addedNew) {
 								// Timeout needed for IE9
 								setTimeout(function() {
@@ -1905,9 +1916,51 @@
 				svgCanvas.setSegType($(this).val());
 			});
 
+			// --- Image Occlusion Enhanced patch -------------------------
+			// #text is a <textarea> now and doubles as the on-canvas editing
+			// overlay, so it needs newline handling of its own and must keep
+			// its keys away from the editor hotkeys and from Anki's shortcuts
+			// in the surrounding dialog.
+			$('#text').on('input', function(){
+				svgCanvas.setTextContent(this.value);
+				svgCanvas.textActions.repositionOverlay();
+			});
+
 			$('#text').keyup(function(){
 				svgCanvas.setTextContent(this.value);
 			});
+
+			$('#text').on('keydown', function(e){
+				if (!svgCanvas.textActions.isOverlayActive()) return;
+
+				if (e.key === 'Escape' || e.keyCode === 27) {
+					// Commit and leave edit mode. Stopping propagation matters:
+					// otherwise Anki's dialog sees the Escape and offers to
+					// discard the whole session.
+					e.preventDefault();
+					e.stopPropagation();
+					svgCanvas.textActions.toSelectMode(true);
+					return;
+				}
+
+				if (e.key === 'Enter' || e.keyCode === 13) {
+					if (e.ctrlKey || e.metaKey) {
+						// Ctrl/Cmd+Enter commits rather than adding a line.
+						e.preventDefault();
+						e.stopPropagation();
+						svgCanvas.textActions.toSelectMode(true);
+						return;
+					}
+					// Plain Enter inserts a newline. Let the textarea do it,
+					// but keep it from bubbling to the hotkey handlers.
+					e.stopPropagation();
+					return;
+				}
+
+				// Everything else stays inside the textarea too.
+				e.stopPropagation();
+			});
+			// --- end Image Occlusion Enhanced patch ---------------------
 
 			$('#image_url').change(function(){
 				setImageURL(this.value);
@@ -4651,7 +4704,19 @@
 					var ctx_arr;
 					var ctx = hcanv.getContext("2d");
 
-					ctx.fillStyle = "rgb(200,0,0)";
+					// --- Image Occlusion Enhanced patch -----------------------
+					// Rulers used to be drawn with hardcoded black ink, which is
+					// invisible against the dark theme. Pull the colour from the
+					// same CSS custom property the rest of the chrome uses.
+					var ruler_ink = "#000";
+					try {
+						var _ink = getComputedStyle(document.documentElement)
+							.getPropertyValue("--io-text-muted").trim();
+						if(_ink) ruler_ink = _ink;
+					} catch(e) {}
+					// --- end Image Occlusion Enhanced patch -------------------
+
+					ctx.fillStyle = ruler_ink;
 					ctx.fillRect(0,0,hcanv.width,hcanv.height);
 
 					// Remove any existing canvasses
@@ -4693,6 +4758,7 @@
 					var big_int = multi * u_multi;
 
 					ctx.font = "9px sans-serif";
+					ctx.fillStyle = ruler_ink;  // IOE: width reset clears ctx state
 
 					var ruler_d = ((content_d / u_multi) % multi) * u_multi;
 					var label_pos = ruler_d - big_int;
@@ -4748,6 +4814,8 @@
 									continue;
 								}
 								ctx = ctx_arr[ctx_num];
+								ctx.font = "9px sans-serif";  // IOE
+								ctx.fillStyle = ruler_ink;    // IOE
 								ruler_d -= limit;
 								sub_d = Math.round(ruler_d + part * i) + .5;
 							}
@@ -4764,7 +4832,7 @@
 					}
 
 					// console.log('ctx', ctx);
-					ctx.strokeStyle = "#000";
+					ctx.strokeStyle = ruler_ink;  // IOE: was hardcoded "#000"
 					ctx.stroke();
 				}
 			}

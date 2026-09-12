@@ -301,6 +301,90 @@ svgedit.utilities.getHref = function(elem) {
 	return elem.getAttributeNS(XLINKNS, "href");
 }
 
+// --- Image Occlusion Enhanced patch --------------------------------------
+// Multi-line text support.
+//
+// SVG <text> has no line wrapping, so a label's line breaks are stored as one
+// <tspan> per line. These helpers are the single place that conversion happens,
+// and they live here rather than in svgcanvas.js so that history.js can
+// round-trip a "#text" change through exactly the same code - otherwise undo
+// would restore elem.textContent, which silently flattens the lines back into
+// one run.
+
+// Line advance for wrapped text, in em.
+svgedit.utilities.TEXT_LINE_HEIGHT = 1.2;
+
+// An empty <tspan> collapses and the blank line disappears, so empty lines get
+// a zero-width space to keep their line box. It is stripped again on read.
+var TEXT_EMPTY_LINE = '​';
+
+// Function: svgedit.utilities.getTextContentLines
+// Read a <text> element's content back as a string, with "\n" between lines.
+svgedit.utilities.getTextContentLines = function(elem) {
+	if (!elem) return '';
+	var tspans = elem.getElementsByTagNameNS(SVGNS, 'tspan');
+	if (!tspans.length) return elem.textContent;
+	var lines = [];
+	for (var i = 0; i < tspans.length; i++) {
+		lines.push(tspans[i].textContent.split(TEXT_EMPTY_LINE).join(''));
+	}
+	return lines.join('\n');
+};
+
+// Function: svgedit.utilities.setTextContentLines
+// Write a string into a <text> element, splitting it into <tspan> lines.
+// Single-line values are written as a plain text node, byte-identical to what
+// stock svg-edit produced, so existing masks do not churn when re-saved.
+svgedit.utilities.setTextContentLines = function(elem, value) {
+	if (!elem) return;
+	value = (value === null || value === undefined) ? '' : String(value);
+
+	if (value.indexOf('\n') === -1) {
+		elem.textContent = value;
+		return;
+	}
+
+	while (elem.firstChild) elem.removeChild(elem.firstChild);
+
+	var x = elem.getAttribute('x') || 0;
+	var lines = value.split('\n');
+	for (var i = 0; i < lines.length; i++) {
+		var tspan = elem.ownerDocument.createElementNS(SVGNS, 'tspan');
+		// x must be restated on every line: text is created with
+		// text-anchor="middle", and without a per-line x each line after the
+		// first would be laid out from where the previous one ended.
+		tspan.setAttribute('x', x);
+		tspan.setAttribute('dy',
+			i === 0 ? '0' : svgedit.utilities.TEXT_LINE_HEIGHT + 'em');
+		tspan.textContent = lines[i].length ? lines[i] : TEXT_EMPTY_LINE;
+		elem.appendChild(tspan);
+	}
+};
+
+// Function: svgedit.utilities.isTextContentBlank
+// Whether a <text> holds nothing a reader would see. Used to decide if an
+// element should be discarded when leaving text-edit mode; a plain
+// textContent length check would count the zero-width line padding above.
+svgedit.utilities.isTextContentBlank = function(elem) {
+	if (!elem) return true;
+	var text = svgedit.utilities.getTextContentLines(elem);
+	return text.replace(/[\s​]/g, '').length === 0;
+};
+
+// Function: svgedit.utilities.syncTextLineAnchors
+// Re-point every line at the element's current x. Needed after the element is
+// moved or its font-size changes, since each tspan carries its own x.
+svgedit.utilities.syncTextLineAnchors = function(elem) {
+	if (!elem) return;
+	var tspans = elem.getElementsByTagNameNS(SVGNS, 'tspan');
+	if (!tspans.length) return;
+	var x = elem.getAttribute('x') || 0;
+	for (var i = 0; i < tspans.length; i++) {
+		tspans[i].setAttribute('x', x);
+	}
+};
+// --- end Image Occlusion Enhanced patch ----------------------------------
+
 // Function: svgedit.utilities.setHref
 // Sets the given element's xlink:href value
 svgedit.utilities.setHref = function(elem, val) {

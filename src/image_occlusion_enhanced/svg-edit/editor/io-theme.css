@@ -1,0 +1,562 @@
+/*
+Image Occlusion Enhanced Add-on for Anki
+
+Copyright (C) 2016-2022  Aristotelis P. <https://glutanimate.com/>
+Copyright (C) 2012-2015  Tiago Barroso <tmbb@campus.ul.pt>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version, with the additions
+listed at the end of the license file that accompanied this program.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+NOTE: This program is subject to certain additional terms pursuant to
+Section 7 of the GNU Affero General Public License.  You should have
+received a copy of these additional terms immediately following the
+terms and conditions of the GNU Affero General Public License that
+accompanied this program.
+
+If not, please request a copy through one of the means of contact
+listed here: <https://glutanimate.com/contact/>.
+
+Any modifications to this file must keep this entire header intact.
+
+--------------------------------------------------------------------------
+
+Modern theme layer for the vendored SVG-Edit 2.6 chrome.
+
+This file is loaded AFTER every other stylesheet in svg-editor.html and only
+overrides presentation - never geometry. SVG-Edit positions its panels with
+absolute pixel offsets that depend on each other (#tools_left width vs.
+#workarea left, etc.), so sizes are deliberately left alone here.
+
+Tokens mirror image_occlusion_enhanced/theme.py TOKENS. Keep the two in sync.
+
+Several stock rules use !important (see svg-editor.css .tool_button:hover and
+friends), so the corresponding overrides below have to as well.
+*/
+
+:root {
+  --io-bg: #f4f5f7;
+  --io-surface: #ffffff;
+  --io-surface-raised: #ffffff;
+  --io-surface-sunken: #eaecef;
+  --io-border: #d6d9e0;
+  --io-border-strong: #b6bbc4;
+  --io-text: #1f2329;
+  --io-text-muted: #6b7280;
+  --io-accent: #2f6feb;
+  --io-accent-hover: #2a62d0;
+  --io-accent-text: #ffffff;
+  --io-accent-soft: rgba(47, 111, 235, 0.14);
+  --io-text-select: rgba(47, 111, 235, 0.32);
+  --io-danger: #d93025;
+  --io-icon: #3c4149;
+  --io-canvas: #bcc0c8;
+  --io-shadow: rgba(16, 20, 28, 0.1);
+  --io-radius: 6px;
+  --io-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+[data-io-theme="dark"] {
+  --io-bg: #1e1f22;
+  --io-surface: #26282c;
+  --io-surface-raised: #303236;
+  --io-surface-sunken: #191a1d;
+  --io-border: #3a3d43;
+  --io-border-strong: #52565e;
+  --io-text: #e5e7ea;
+  --io-text-muted: #9aa0a8;
+  --io-accent: #4c8dff;
+  --io-accent-hover: #6ba0ff;
+  --io-accent-text: #10131a;
+  --io-accent-soft: rgba(76, 141, 255, 0.2);
+  --io-text-select: rgba(76, 141, 255, 0.38);
+  --io-danger: #f2685f;
+  --io-icon: #c8ccd2;
+  --io-canvas: #3a3d43;
+  --io-shadow: rgba(0, 0, 0, 0.45);
+}
+
+/* --- Base ---------------------------------------------------------------- */
+
+body {
+  background: var(--io-bg);
+}
+
+#svg_editor {
+  font-family: var(--io-font);
+  font-size: 12px;
+  color: var(--io-text);
+}
+
+#svg_editor a {
+  color: var(--io-accent);
+}
+
+#svg_editor hr {
+  border: none;
+  border-bottom: 1px solid var(--io-border);
+}
+
+/* --- Canvas surround ----------------------------------------------------- */
+
+#workarea {
+  background-color: var(--io-canvas);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+}
+
+#svgcanvas {
+  background-color: var(--io-canvas);
+  /* stock rule paints a radial gradient over the canvas (svg-editor.css:70) */
+  background-image: none;
+}
+
+#rulers > div,
+#ruler_x,
+#ruler_y,
+#ruler_corner {
+  background: var(--io-surface-sunken);
+  color: var(--io-text-muted);
+  border-color: var(--io-border);
+}
+
+#ruler_x canvas,
+#ruler_y canvas {
+  opacity: 0.85;
+}
+
+/* --- Panels -------------------------------------------------------------- */
+
+#tools_top,
+#tools_left,
+#tools_bottom,
+#sidepanels,
+#layerpanel {
+  background: var(--io-bg);
+  color: var(--io-text);
+  border-color: var(--io-border);
+}
+
+#tools_top {
+  border-bottom: 1px solid var(--io-border);
+}
+
+#tools_left {
+  border-right: 1px solid var(--io-border);
+}
+
+#sidepanels {
+  border-color: var(--io-border);
+}
+
+#tools_top .tool_sep,
+#tools_bottom .tool_sep,
+.tool_sep {
+  background: var(--io-border);
+  border: none;
+  width: 1px;
+}
+
+#tools_top label,
+#tools_bottom label,
+#sidepanels label,
+#layerpanel label,
+.icon_label {
+  color: var(--io-text-muted);
+}
+
+#palette_holder {
+  background: var(--io-surface-raised);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  box-shadow: 0 1px 2px var(--io-shadow);
+}
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.tool_button,
+.push_button,
+.tool_button_current,
+.push_button_pressed,
+.buttonup,
+.buttondown {
+  background-color: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--io-radius) !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  -moz-box-shadow: none !important;
+  color: var(--io-icon);
+  transition: background-color 90ms ease, border-color 90ms ease;
+}
+
+.tool_button:hover,
+.push_button:hover,
+.buttonup:hover,
+.buttondown:hover {
+  background-color: var(--io-surface-sunken) !important;
+  border-color: var(--io-border) !important;
+}
+
+.tool_button_current,
+.push_button_pressed,
+.buttondown {
+  background-color: var(--io-accent-soft) !important;
+  border-color: var(--io-accent) !important;
+  color: var(--io-accent) !important;
+}
+
+.tool_button:active,
+.push_button:active {
+  background-color: var(--io-accent-soft) !important;
+}
+
+.disabled,
+.tool_button.disabled {
+  opacity: 0.4;
+}
+
+/* Icons are injected inline (svg-editor.js passes no_img: true), so they
+   inherit the button's colour through currentColor. */
+.tool_button svg,
+.push_button svg,
+.tool_button_current svg,
+#tools_left svg,
+#tools_top svg,
+#tools_bottom svg,
+#layerpanel svg {
+  color: inherit;
+  fill: none;
+  stroke: currentColor;
+}
+
+/* --- Form controls ------------------------------------------------------- */
+
+#svg_editor input[type="text"],
+#svg_editor input[type="number"],
+#svg_editor select,
+#svg_editor textarea {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+  border: 1px solid var(--io-border-strong);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-family: var(--io-font);
+  font-size: 12px;
+  outline: none;
+}
+
+#svg_editor input[type="text"]:focus,
+#svg_editor select:focus,
+#svg_editor textarea:focus {
+  border-color: var(--io-accent);
+}
+
+#svg_editor select option {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+}
+
+.SpinBtnUp,
+.SpinBtnDown {
+  filter: none;
+  opacity: 0.7;
+}
+
+/* --- Dropdowns ----------------------------------------------------------- */
+
+.dropdown button,
+.dropdown button.down {
+  background: var(--io-surface-raised);
+  border: 1px solid var(--io-border-strong);
+  border-radius: 4px;
+  color: var(--io-text);
+  box-shadow: none;
+}
+
+.dropdown ul {
+  background: var(--io-surface-raised);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  box-shadow: 0 6px 18px var(--io-shadow);
+  overflow: hidden;
+}
+
+.dropdown li {
+  background: transparent;
+  color: var(--io-text);
+  border: none;
+}
+
+.dropdown li:hover,
+.dropdown li.special:hover {
+  background: var(--io-accent);
+  color: var(--io-accent-text);
+}
+
+.dropdown li.special {
+  background: var(--io-surface-sunken);
+  color: var(--io-text);
+}
+
+.tools_flyout {
+  background: var(--io-surface-raised);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  box-shadow: 0 6px 18px var(--io-shadow);
+}
+
+/* --- Menus --------------------------------------------------------------- */
+
+#main_menu,
+#main_menu ul,
+#main_menu li {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+  border-color: var(--io-border);
+}
+
+#main_menu li:hover {
+  background: var(--io-accent);
+  color: var(--io-accent-text);
+}
+
+/* The main menu control is #main_button wrapping an inner .tool_button
+   (#main_icon). Styling both gave it two nested borders and pushed its height
+   past the 40px top bar, so it spilled down over the left toolbar. Only the
+   inner button is styled now, with an explicit height that fits the bar. */
+#main_button {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  top: 4px;
+  height: 32px;
+}
+
+#main_icon.tool_button {
+  box-sizing: border-box;
+  top: 0;
+  left: 0;
+  height: 32px;
+  width: 96px;
+  margin: 0;
+  padding: 0;
+  background: var(--io-surface-raised) !important;
+  border: 1px solid var(--io-border-strong) !important;
+  border-radius: var(--io-radius) !important;
+  color: var(--io-text);
+}
+
+#main_icon.tool_button:hover {
+  background: var(--io-surface-sunken) !important;
+}
+
+#main_icon span {
+  line-height: 30px;
+  padding-left: 30px;
+}
+
+#main_button .dropdown {
+  top: 3px;
+}
+
+/* --- Layers panel -------------------------------------------------------- */
+
+#layerlist {
+  background: var(--io-surface);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  color: var(--io-text);
+  border-collapse: separate;
+}
+
+#layerlist td {
+  border-color: var(--io-border);
+}
+
+#layerlist tr.layer {
+  background: transparent;
+}
+
+#layerlist tr.layersel,
+#layerlist tr.layersel td {
+  background: var(--io-accent-soft);
+  color: var(--io-text);
+  border-color: var(--io-accent);
+}
+
+#layerlist tr.layer:hover td {
+  background: var(--io-surface-sunken);
+}
+
+#sidepanels h3,
+#layerpanel h3,
+.layer_button {
+  color: var(--io-text);
+}
+
+#sidepanel_handle {
+  background-color: var(--io-surface-raised);
+  color: var(--io-text-muted);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  font-weight: 600;
+}
+
+#sidepanel_handle:hover {
+  background-color: var(--io-surface-sunken);
+  color: var(--io-text);
+}
+
+/* --- Panels shown while a shape is selected ------------------------------ */
+
+#tools_top div[id$="_panel"] {
+  color: var(--io-text);
+}
+
+#tools_bottom input[type="text"] {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+}
+
+/* --- jQuery UI dialogs / jGraduate / jPicker ----------------------------- */
+
+.ui-dialog,
+.ui-widget-content,
+.jGraduate_Picker,
+.jPicker .Container,
+div.jPicker.Container {
+  background: var(--io-surface) !important;
+  color: var(--io-text) !important;
+  border: 1px solid var(--io-border) !important;
+  border-radius: var(--io-radius) !important;
+  box-shadow: 0 10px 30px var(--io-shadow) !important;
+}
+
+.ui-dialog .ui-dialog-titlebar,
+.ui-widget-header,
+.jPicker .Title,
+div.jPicker .Title {
+  background: var(--io-surface-sunken) !important;
+  color: var(--io-text) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--io-border) !important;
+  font-weight: 600;
+}
+
+.ui-dialog .ui-dialog-buttonpane button,
+.jPicker .Button input,
+div.jPicker .Button input {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+  border: 1px solid var(--io-border-strong);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.ui-dialog .ui-dialog-buttonpane button:hover {
+  background: var(--io-surface-sunken);
+}
+
+#dialog_box,
+#dialog_content,
+#dialog_container {
+  background: var(--io-surface);
+  color: var(--io-text);
+  border: 1px solid var(--io-border);
+  border-radius: var(--io-radius);
+  box-shadow: 0 10px 30px var(--io-shadow);
+}
+
+#dialog_buttons input[type="button"],
+#dialog_buttons input[type="submit"] {
+  background: var(--io-surface-raised);
+  color: var(--io-text);
+  border: 1px solid var(--io-border-strong);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+#dialog_buttons input[type="button"]:hover {
+  background: var(--io-surface-sunken);
+}
+
+/* --- Text editing overlay ------------------------------------------------
+
+The text tool writes into #text, which stock svg-edit parks off-screen at
+left:-9999px (svg-editor.css:764). Here it becomes a real floating editor laid
+over the element being edited; svgcanvas.js positions it and toggles the
+.io-text-overlay class. Keep it hidden when not editing.
+-------------------------------------------------------------------------- */
+
+#text {
+  left: -9999px;
+  position: absolute;
+}
+
+/* The overlay is deliberately invisible: it captures typing and draws the
+   caret, while the text you actually see is the SVG element underneath being
+   updated live. That keeps the original "type straight onto the image" feel
+   rather than putting a filled box over the artwork. */
+#text.io-text-overlay {
+  z-index: 9999;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  outline: none;
+  color: transparent;
+  caret-color: var(--io-accent);
+}
+
+/* Selected text stays transparent so the canvas glyphs keep showing through;
+   only the highlight band is drawn. */
+#text.io-text-overlay::selection {
+  background: var(--io-text-select);
+  color: transparent;
+}
+
+/* --- Scrollbars ---------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--io-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--io-text-muted);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

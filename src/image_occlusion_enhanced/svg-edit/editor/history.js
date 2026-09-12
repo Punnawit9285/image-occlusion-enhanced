@@ -256,7 +256,8 @@ svgedit.history.ChangeElementCommand = function(elem, attrs, text) {
 	this.newValues = {};
 	this.oldValues = attrs;
 	for (var attr in attrs) {
-		if (attr == "#text") this.newValues[attr] = elem.textContent;
+		// IOE: read through the tspan-aware helper so multi-line text survives
+		if (attr == "#text") this.newValues[attr] = svgedit.utilities.getTextContentLines(elem);
 		else if (attr == "#href") this.newValues[attr] = svgedit.utilities.getHref(elem);
 		else this.newValues[attr] = elem.getAttribute(attr);
 	}
@@ -279,13 +280,13 @@ svgedit.history.ChangeElementCommand.prototype.apply = function(handler) {
 	var bChangedTransform = false;
 	for(var attr in this.newValues ) {
 		if (this.newValues[attr]) {
-			if (attr == "#text") this.elem.textContent = this.newValues[attr];
+			if (attr == "#text") svgedit.utilities.setTextContentLines(this.elem, this.newValues[attr]);  // IOE
 			else if (attr == "#href") svgedit.utilities.setHref(this.elem, this.newValues[attr])
 			else this.elem.setAttribute(attr, this.newValues[attr]);
 		}
 		else {
 			if (attr == "#text") {
-				this.elem.textContent = "";
+				svgedit.utilities.setTextContentLines(this.elem, "");  // IOE
 			}
 			else {
 				this.elem.setAttribute(attr, "");
@@ -327,13 +328,13 @@ svgedit.history.ChangeElementCommand.prototype.unapply = function(handler) {
 	var bChangedTransform = false;
 	for(var attr in this.oldValues ) {
 		if (this.oldValues[attr]) {
-			if (attr == "#text") this.elem.textContent = this.oldValues[attr];
+			if (attr == "#text") svgedit.utilities.setTextContentLines(this.elem, this.oldValues[attr]);  // IOE
 			else if (attr == "#href") svgedit.utilities.setHref(this.elem, this.oldValues[attr]);
 			else this.elem.setAttribute(attr, this.oldValues[attr]);
 		}
 		else {
 			if (attr == "#text") {
-				this.elem.textContent = "";
+				svgedit.utilities.setTextContentLines(this.elem, "");  // IOE
 			}
 			else this.elem.removeAttribute(attr);
 		}
