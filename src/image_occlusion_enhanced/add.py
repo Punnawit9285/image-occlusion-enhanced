@@ -50,6 +50,24 @@ from .lang import _
 from .ngen import *
 from .utils import get_image_dimensions, img_element_to_path, path_to_url
 from .logger import logger
+from .theme import isNightMode
+
+SVG_ERROR_PREFIX = "__IO_SVG_ERROR__:"
+
+SVG_EXPORT_JS = """
+(function () {
+    try {
+        // Leaving in-group editing first: svgCanvasToString() returns null
+        // while a shape inside a group is being edited.
+        svgCanvas.leaveContext();
+        return svgCanvas.svgCanvasToString();
+    } catch (e) {
+        // Surface the real reason instead of handing Python a bare null,
+        // which used to surface as an unrelated AttributeError (#86, #331).
+        return "%s" + (e && (e.message || e));
+    }
+})()
+""" % SVG_ERROR_PREFIX
 
 # SVG-Edit configuration
 svg_edit_dir = os.path.join(os.path.dirname(__file__), "svg-edit", "editor")
@@ -237,6 +255,7 @@ class ImgOccAdd(object):
         items.addQueryItem("initStroke[width]", str(swidth))
         items.addQueryItem("text[font_size]", str(fsize))
         items.addQueryItem("text[font_family]", "'%s', %s" % (font, svg_edit_fonts))
+        items.addQueryItem("io_theme", "dark" if isNightMode() else "light")
 
         if self.mode != "add":
             items.addQueryItem("initTool", "select"),
@@ -244,7 +263,7 @@ class ImgOccAdd(object):
                 fn = i["name"]
                 if fn in self.ioflds_priv:
                     continue
-                dialog.tedit[fn].setPlainText(onote[fn].replace("<br />", "\n"))
+                dialog.tedit[fn].setFieldHtml(onote[fn])
             svg_url = path_to_url(opref["omask"])
             items.addQueryItem("url", svg_url)
         else:
@@ -259,16 +278,16 @@ class ImgOccAdd(object):
         if onote:
             for i in self.ioflds_prsv:
                 if i in onote:
-                    dialog.tedit[i].setPlainText(onote[i])
+                    dialog.tedit[i].setFieldHtml(onote[i])
 
         if self.mode == "add":
             dialog.setModal(False)
 
             def onSvgEditLoaded():
+                # Reveal first, then fit: fitting against a still-hidden web
+                # view collapses the zoom to almost nothing (issue #92).
                 dialog.showSvgEdit(True)
-                # TODO: find better solution
                 dialog.fitImageCanvas()
-                dialog.fitImageCanvas(delay=200)
 
         else:
             # modal dialog when editing
@@ -280,7 +299,6 @@ class ImgOccAdd(object):
                     ioInfo("obsolete_aa", parent=dialog)
                 dialog.showSvgEdit(True)
                 dialog.fitImageCanvas()
-                dialog.fitImageCanvas(delay=200)
 
         dialog.svg_edit.runOnLoaded(onSvgEditLoaded)
         dialog.visible = True
@@ -321,7 +339,7 @@ class ImgOccAdd(object):
         # the callback gets called with `None` (might be a bug in svg-edit).
         # Calling leaveContext() first fixes this.
         dialog.svg_edit.evalWithCallback(
-            "svgCanvas.leaveContext(); svgCanvas.svgCanvasToString();",
+            SVG_EXPORT_JS,
             lambda val, choice=choice, close=close: self._onAddNotesButton(
                 choice, close, val
             ),
@@ -330,6 +348,9 @@ class ImgOccAdd(object):
     def _onAddNotesButton(self, choice, close, svg):
         """Get occlusion settings in and pass them to the note generator (add)"""
         dialog = self.imgoccedit
+
+        if not self._checkSvg(svg, dialog):
+            return False
 
         r1 = self.getUserInputs(dialog)
         if r1 is False:
@@ -372,13 +393,16 @@ class ImgOccAdd(object):
         # See the comment above in addNotesButton() about
         # the call to `leaveContext()`.
         dialog.svg_edit.evalWithCallback(
-            "svgCanvas.leaveContext(); svgCanvas.svgCanvasToString();",
+            SVG_EXPORT_JS,
             lambda val, choice=choice: self._onEditNotesButton(choice, val),
         )
 
     def _onEditNotesButton(self, choice, svg):
         """Get occlusion settings and pass them to the note generator (edit)"""
         dialog = self.imgoccedit
+
+        if not self._checkSvg(svg, dialog):
+            return False
 
         r1 = self.getUserInputs(dialog, edit=True)
         if r1 is False:
@@ -439,6 +463,32 @@ class ImgOccAdd(object):
         if mw.state == "review":
             mw.progress.single_shot(100, refresh_reviewer)
 
+    def _checkSvg(self, svg, dialog):
+        """Report a failed mask export instead of crashing further down.
+
+        The note generators assume a string; handing them None produced an
+        opaque AttributeError deep in ngen (issues #86, #331).
+        """
+        if svg and not svg.startswith(SVG_ERROR_PREFIX):
+            return True
+
+        if svg:
+            detail = svg[len(SVG_ERROR_PREFIX):]
+        else:
+            detail = _("the mask editor did not return any data")
+        logger.error("could not read masks from the editor: %s", detail)
+        ioCritical(
+            "custom",
+            text=_(
+                "<b>Could not read the masks from the editor.</b>"
+                "<br><br>Your cards were not created, and nothing in your "
+                "collection has been changed."
+                "<br><br>Details: <i>{detail}</i>"
+            ).format(detail=detail),
+            parent=dialog,
+        )
+        return False
+
     def getUserInputs(self, dialog, edit=False):
         """Get fields and tags from ImgOccEdit while checking note type"""
         fields = {}
@@ -453,7 +503,6 @@ class ImgOccAdd(object):
                 continue
             if edit and fn in self.sconf["skip"]:
                 continue
-            text = dialog.tedit[fn].toPlainText().replace("\n", "<br />")
-            fields[fn] = text
+            fields[fn] = dialog.tedit[fn].fieldHtml()
         tags = dialog.tags_edit.text().split()
         return (fields, tags)

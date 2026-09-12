@@ -35,6 +35,7 @@ Generates the actual IO notes and writes them to
 the collection.
 """
 
+import re
 import uuid
 from typing import Union
 from xml.dom import minidom
@@ -78,6 +79,11 @@ class ImgOccNoteGenerator(object):
 
     stripattr = ["opacity", "stroke-opacity", "fill-opacity"]
 
+    # Note IDs look like "<uuid4 hex>-<ao|oa|aa>-<number>"; see the module
+    # docstring above. Used to tell a <text> that already backs a note from
+    # one the user has just drawn.
+    node_id_re = re.compile(r"^.+-(?:ao|oa|aa)-\d+$")
+
     def __init__(self, ed, svg, image_path, opref, tags, fields, did):
         self.ed = ed
         self.new_svg = svg
@@ -86,7 +92,7 @@ class ImgOccNoteGenerator(object):
         self.tags = tags
         self.fields = fields
         self.did = did
-        self.qfill = "#" + mw.col.conf["imgocc"]["qfill"]
+        self.qfill = "#" + getColConfig()["qfill"]
         self._media_path = mw.col.media.dir()
         loadConfig(self)
 
@@ -241,6 +247,16 @@ class ImgOccNoteGenerator(object):
             # i.e. mask nodes
             if (mnode.nodeType == mnode.ELEMENT_NODE) and (mnode.nodeName != "title"):
                 i -= shift
+                if mnode.nodeName == "text" and not (
+                    edit and self._isExistingTextNote(mnode)
+                ):
+                    # Text in the masks layer is a label, not a card: it is
+                    # left in place so it shows on every generated mask rather
+                    # than being treated as a shape to hide and reveal.
+                    # Previously each text element became its own note, and
+                    # "Hide One, Guess One" then stripped every other label off
+                    # the question (issues #222, #283).
+                    continue
                 if not edit and mnode.nodeName == "rect":
                     # remove microscopical shapes (usually accidentally drawn)
                     h_attr = mnode.attributes.get("height", 0)
@@ -277,6 +293,18 @@ class ImgOccNoteGenerator(object):
                     self.mnode_ids[i] = mnode.attributes["id"].value
 
         return (svg_node, mlayer_node)
+
+    def _isExistingTextNote(self, mnode):
+        """Whether this <text> already has a note generated from it.
+
+        Only relevant when re-editing: text drawn before this change does back
+        a real note, and silently dropping it here would make _deleteAndIdNotes
+        remove that note along with its scheduling. Those keep their old
+        behaviour; newly drawn text becomes a label.
+        """
+        if not mnode.hasAttribute("id"):
+            return False
+        return bool(self.node_id_re.match(mnode.attributes["id"].value))
 
     def _findByNoteId(self, note_id):
         """Search collection for notes with given ID"""

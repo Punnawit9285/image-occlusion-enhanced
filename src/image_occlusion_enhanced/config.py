@@ -38,6 +38,7 @@ Sets up configuration, including constants
 
 import os
 import sys
+from copy import deepcopy
 
 from aqt import mw
 
@@ -94,38 +95,67 @@ default_conf_syncd = {
 from . import template
 
 
+IO_CONF_KEY = "imgocc"
+
+
+def getColConfig(key=IO_CONF_KEY, default=None):
+    """Read a synced config entry.
+
+    Subscripting mw.col.conf still works through a compatibility shim, but it
+    prints "conf key imgocc should be fetched with col.get_config()" on every
+    single access (issues #147, #261). Note that unlike the old shim this
+    returns a *copy*, so changes have to be written back with setColConfig().
+    """
+    try:
+        return mw.col.get_config(key, default=default)
+    except AttributeError:  # Anki < 2.1.24
+        return mw.col.conf.get(key, default)
+
+
+def setColConfig(value, key=IO_CONF_KEY):
+    """Persist a synced config entry."""
+    try:
+        mw.col.set_config(key, value)
+    except AttributeError:  # Anki < 2.1.24
+        mw.col.conf[key] = value
+        mw.col.setMod()
+
+
 def getSyncedConfig():
     # Synced preferences
-    if "imgocc" not in mw.col.conf:
+    conf = getColConfig()
+
+    if conf is None:
         # create initial configuration
-        mw.col.conf["imgocc"] = default_conf_syncd
+        conf = deepcopy(default_conf_syncd)
 
         # upgrade from IO 2.0:
-        if "image_occlusion_conf" in mw.col.conf:
-            old_conf = mw.col.conf["image_occlusion_conf"]
-            mw.col.conf["imgocc"]["ofill"] = old_conf["initFill[color]"]
-            mw.col.conf["imgocc"]["qfill"] = old_conf["mask_fill_color"]
+        old_conf = getColConfig("image_occlusion_conf")
+        if old_conf:
+            conf["ofill"] = old_conf["initFill[color]"]
+            conf["qfill"] = old_conf["mask_fill_color"]
             # insert other upgrade actions here
-        mw.col.setMod()
+        setColConfig(conf)
 
-    elif mw.col.conf["imgocc"]["version"] < default_conf_syncd["version"]:
+    elif conf["version"] < default_conf_syncd["version"]:
         print("Updating config DB from earlier IO release")
         for key in list(default_conf_syncd.keys()):
-            if key not in mw.col.conf["imgocc"]:
-                mw.col.conf["imgocc"][key] = default_conf_syncd[key]
-        mw.col.conf["imgocc"]["version"] = default_conf_syncd["version"]
-        mw.col.setMod()
+            if key not in conf:
+                conf[key] = deepcopy(default_conf_syncd[key])
+        conf["version"] = default_conf_syncd["version"]
+        setColConfig(conf)
 
-    return mw.col.conf["imgocc"]
+    return conf
 
 
 def getLocalConfig():
-    # Local preferences
+    # Local preferences. mw.pm.profile is a plain dict held in memory, so
+    # unlike the synced config it can still be mutated in place.
     if "imgocc" not in mw.pm.profile:
-        mw.pm.profile["imgocc"] = default_conf_local
+        mw.pm.profile["imgocc"] = deepcopy(default_conf_local)
     elif mw.pm.profile["imgocc"].get("version", 0) < default_conf_syncd["version"]:
         for key in list(default_conf_local.keys()):
-            if key not in mw.col.conf["imgocc"]:
+            if key not in mw.pm.profile["imgocc"]:
                 mw.pm.profile["imgocc"][key] = default_conf_local[key]
         mw.pm.profile["imgocc"]["version"] = default_conf_local["version"]
 
@@ -137,9 +167,11 @@ def getOrCreateModel():
     if not model:
         # create model and set up default field name config
         model = template.add_io_model(mw.col)
-        mw.col.conf["imgocc"]["flds"] = default_conf_syncd["flds"]
+        conf = getColConfig() or deepcopy(default_conf_syncd)
+        conf["flds"] = deepcopy(default_conf_syncd["flds"])
+        setColConfig(conf)
         return model
-    model_version = mw.col.conf["imgocc"]["version"]
+    model_version = getColConfig()["version"]
     if model_version < default_conf_syncd["version"]:
         return template.update_template(mw.col, model_version)
     return model
@@ -148,7 +180,7 @@ def getOrCreateModel():
 def getModelConfig():
     model = getOrCreateModel()
     mflds = model["flds"]
-    ioflds = mw.col.conf["imgocc"]["flds"]
+    ioflds = getColConfig()["flds"]
     ioflds_priv = []
     for i in IO_FIDS_PRIV:
         ioflds_priv.append(ioflds[i])

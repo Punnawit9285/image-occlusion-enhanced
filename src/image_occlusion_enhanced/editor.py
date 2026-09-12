@@ -34,37 +34,53 @@
 Image Occlusion editor dialog
 """
 
+import html
 import os
+import uuid
+from typing import List, Optional
 
+from anki.config import Config
 from anki.hooks import addHook, remHook
 from aqt import deckchooser, mw, tagedit, webview
 from aqt.qt import (
     QApplication,
+    QBuffer,
+    QByteArray,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
+    QFrame,
     QHBoxLayout,
     QIcon,
+    QImage,
+    QIODevice,
     QKeySequence,
     QLabel,
     QMovie,
-    QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QShortcut,
     QSize,
     Qt,
     QTabWidget,
+    QTextEdit,
+    QTextImageFormat,
+    QUrl,
     QVBoxLayout,
     QWidget,
     sip,
     pyqtSignal,
 )
-from aqt.utils import restoreGeom, saveGeom, askUser
+from aqt.utils import restoreGeom, saveGeom, askUser, tooltip
 
 from .config import *
 from .consts import *
 from .dialogs import ioHelp
 from .lang import _
+from .logger import logger
+from .theme import isNightMode, qtStylesheet
+from .utils import path_to_img_element
 
 
 class ImgOccWebPage(webview.AnkiWebPage):
@@ -119,6 +135,207 @@ class ImgOccWebView(webview.AnkiWebView):
         self.escape_pressed.emit()
 
 
+class IOFieldEdit(QTextEdit):
+    """Field entry widget that accepts pasted and dropped images.
+
+    Anki stores field content as HTML, so images live in the collection's media
+    folder and are referenced as <img src="filename">. Using a rich text widget
+    means they show up as pictures while editing instead of as a bare file path,
+    which is what users kept running into (issues #276, #310).
+
+    The document's base URL is the media folder, so a bare filename in an
+    img src resolves both when loading a note and when serialising back out.
+    """
+
+    # Images wider than this are scaled down for display only; the stored
+    # markup is untouched, so cards still get the full-resolution file.
+    MAX_DISPLAY_WIDTH = 320
+
+    def __init__(self, parent=None):
+        QTextEdit.__init__(self, parent)
+        self.setAcceptRichText(False)
+        self.setTabChangesFocus(True)
+        self.setAcceptDrops(True)
+        self._original = ""
+        try:
+            self.document().setBaseUrl(
+                QUrl.fromLocalFile(os.path.join(mw.col.media.dir(), ""))
+            )
+        except Exception:
+            # No collection open yet; images simply will not preview.
+            pass
+
+    # -- content round-tripping
+
+    def setFieldHtml(self, text: str) -> None:
+        """Load a field's stored HTML, remembering it for preservation."""
+        self._original = text or ""
+        self.setHtml(self._original)
+        self.document().setModified(False)
+
+    def fieldHtml(self) -> str:
+        """Serialise back to the minimal HTML the note type expects.
+
+        If nothing was touched the stored value is returned verbatim. Field
+        content can contain arbitrary markup produced by Anki's own editor -
+        the Sources field is shared with it - and re-serialising that through a
+        QTextDocument would quietly rewrite it.
+        """
+        if not self.document().isModified():
+            return self._original
+        return self._serialize()
+
+    def _serialize(self) -> str:
+        doc = self.document()
+        parts: List[str] = []
+        block = doc.begin()
+        first_block = True
+        while block.isValid():
+            if not first_block:
+                parts.append("<br />")
+            first_block = False
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                if fragment.isValid():
+                    parts.append(self._serializeFragment(fragment))
+                it += 1
+            block = block.next()
+        return "".join(parts)
+
+    def _serializeFragment(self, fragment) -> str:
+        fmt = fragment.charFormat()
+        if fmt.isImageFormat():
+            name = fmt.toImageFormat().name()
+            if not name:
+                return ""
+            return path_to_img_element(name)
+        text = html.escape(fragment.text(), quote=False)
+        if not text:
+            return ""
+        if fmt.fontUnderline():
+            text = "<u>%s</u>" % text
+        if fmt.fontItalic():
+            text = "<i>%s</i>" % text
+        if fmt.fontWeight() > 500:
+            text = "<b>%s</b>" % text
+        return text
+
+    # -- image input
+
+    def canInsertFromMimeData(self, source) -> bool:
+        if source.hasImage() or self._imagePaths(source):
+            return True
+        return QTextEdit.canInsertFromMimeData(self, source)
+
+    def insertFromMimeData(self, source) -> None:
+        if self._insertImages(source):
+            return
+        # Deliberately plain: the serialiser above only emits a small set of
+        # tags, so arbitrary pasted markup could not be round-tripped anyway.
+        self.insertPlainText(source.text())
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasImage() or self._imagePaths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        QTextEdit.dragEnterEvent(self, event)
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasImage() or self._imagePaths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        QTextEdit.dragMoveEvent(self, event)
+
+    def dropEvent(self, event) -> None:
+        if self._insertImages(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        QTextEdit.dropEvent(self, event)
+
+    def _imagePaths(self, source) -> List[str]:
+        """Local image files carried by a drop or paste."""
+        paths = []
+        if not source.hasUrls():
+            return paths
+        for url in source.urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            ext = os.path.splitext(path)[1].lower().lstrip(".")
+            if ext in SUPPORTED_EXTENSIONS and os.path.isfile(path):
+                paths.append(path)
+        return paths
+
+    def _insertImages(self, source) -> bool:
+        inserted = False
+        for path in self._imagePaths(source):
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError as e:
+                logger.warning("could not read dropped image %s: %s", path, e)
+                continue
+            fname = self._writeMedia(os.path.basename(path), data)
+            if fname:
+                self._insertImageElement(fname)
+                inserted = True
+        if inserted:
+            return True
+
+        if source.hasImage():
+            # imageData() hands back a QImage on some platforms and a QPixmap
+            # on others, so normalise before saving.
+            data = source.imageData()
+            image = data if isinstance(data, QImage) else QImage(data)
+            if not image.isNull():
+                fname = self._writeImage(image)
+                if fname:
+                    self._insertImageElement(fname)
+                    return True
+        return False
+
+    def _writeImage(self, image: QImage) -> Optional[str]:
+        """Save a clipboard image into the media folder."""
+        try:
+            as_png = mw.col.get_config_bool(Config.Bool.PASTE_IMAGES_AS_PNG)
+        except Exception:
+            as_png = False
+        fmt, ext = ("PNG", "png") if as_png else ("JPG", "jpg")
+        buffer = QBuffer(QByteArray())
+        buffer.open(QIODevice.OpenModeFlag.ReadWrite)
+        if not image.save(buffer, fmt):
+            buffer.close()
+            return None
+        data = bytes(buffer.data())
+        buffer.close()
+        name = "io-paste-%s.%s" % (uuid.uuid4().hex[:12], ext)
+        return self._writeMedia(name, data)
+
+    def _writeMedia(self, name: str, data: bytes) -> Optional[str]:
+        """Register bytes with the media DB, returning the stored filename."""
+        try:
+            return mw.col.media.write_data(name, data)
+        except Exception as e:
+            logger.warning("could not add %s to the media folder: %s", name, e)
+            tooltip(_("Could not add image to the collection"))
+            return None
+
+    def _insertImageElement(self, fname: str) -> None:
+        path = os.path.join(mw.col.media.dir(), fname)
+        image = QImage(path)
+        fmt = QTextImageFormat()
+        # Bare filename: the document base URL points at the media folder, and
+        # this is also what gets written back into the field.
+        fmt.setName(fname)
+        if not image.isNull() and image.width() > self.MAX_DISPLAY_WIDTH:
+            scale = self.MAX_DISPLAY_WIDTH / float(image.width())
+            fmt.setWidth(self.MAX_DISPLAY_WIDTH)
+            fmt.setHeight(image.height() * scale)
+        self.textCursor().insertImage(fmt)
+        self.document().setModified(True)
+
+
 class ImgOccEdit(QDialog):
     """Main Image Occlusion Editor dialog"""
 
@@ -133,6 +350,8 @@ class ImgOccEdit(QDialog):
         loadConfig(self)
         self.setupUi()
         restoreGeom(self, "imgoccedit")
+        self._theme_hook = None
+        self._setupThemeHook()
         try:
             from aqt.gui_hooks import profile_will_close
 
@@ -152,6 +371,7 @@ class ImgOccEdit(QDialog):
             self.svg_edit.cleanup()  # type: ignore
         self.svg_edit = None
         del self.svg_edit_anim  # might not be gc'd
+        self._teardownThemeHook()
         try:
             from aqt.gui_hooks import profile_will_close
 
@@ -182,10 +402,49 @@ class ImgOccEdit(QDialog):
     def _input_modified(self) -> bool:
         tags_modified = self.tags_edit.isModified()
         fields_modified = any(
-            plain_text_edit.document().isModified()  # type: ignore
-            for plain_text_edit in self.findChildren(QPlainTextEdit)
+            field_edit.document().isModified()  # type: ignore
+            for field_edit in self.findChildren(IOFieldEdit)
         )
         return tags_modified or fields_modified
+
+    # Theming
+
+    def _setupThemeHook(self):
+        """Follow Anki's theme while the editor is open"""
+        try:
+            from aqt.gui_hooks import theme_did_change
+        except (ImportError, ModuleNotFoundError):
+            return
+        self._theme_hook = self.onThemeChange
+        theme_did_change.append(self._theme_hook)
+
+    def _teardownThemeHook(self):
+        if not self._theme_hook:
+            return
+        try:
+            from aqt.gui_hooks import theme_did_change
+
+            theme_did_change.remove(self._theme_hook)
+        except (ImportError, ModuleNotFoundError, ValueError):
+            pass
+        self._theme_hook = None
+
+    def onThemeChange(self):
+        # Anki fires this from a progress handler, by which point the dialog
+        # may already be gone. Guarding here avoids the RuntimeError that
+        # issue #251 tracked.
+        if sip.isdeleted(self):
+            return
+        self.applyTheme()
+
+    def applyTheme(self):
+        night = isNightMode()
+        self.setStyleSheet(qtStylesheet(night))
+        if self.svg_edit and not sip.isdeleted(self.svg_edit):
+            self.svg_edit.eval(
+                "document.documentElement.dataset.ioTheme = '%s';"
+                % ("dark" if night else "light")
+            )
 
     def setupUi(self):
         """Set up ImgOccEdit UI"""
@@ -196,10 +455,9 @@ class ImgOccEdit(QDialog):
 
         self.svg_edit.escape_pressed.connect(self.reject)
 
-        self.tags_hbox = QHBoxLayout()
         self.tags_edit = tagedit.TagEdit(self)
         self.tags_label = QLabel(_("Tags"))
-        self.tags_label.setFixedWidth(70)
+        self.tags_label.setProperty("ioMuted", True)
         self.deck_container = QWidget()
         self.deckChooser = deckchooser.DeckChooser(mw, self.deck_container, label=True)
         self.deckChooser.deck.setAutoDefault(False)
@@ -248,6 +506,7 @@ class ImgOccEdit(QDialog):
         help_button = button_box.addButton(
             _("&?"), QDialogButtonBox.ButtonRole.ActionRole
         )
+        help_button.setProperty("ioIcon", True)
         close_button = button_box.addButton(
             _("&Close"), QDialogButtonBox.ButtonRole.RejectRole
         )
@@ -305,12 +564,21 @@ class ImgOccEdit(QDialog):
 
         # Button row
         bottom_hbox = QHBoxLayout()
-        bottom_hbox.setContentsMargins(10, 0, 10, 10)
+        bottom_hbox.setContentsMargins(14, 10, 14, 12)
+        bottom_hbox.setSpacing(8)
         bottom_hbox.addWidget(image_btn)
         bottom_hbox.insertStretch(1, stretch=1)
         bottom_hbox.addWidget(self.bottom_label)
         bottom_hbox.addWidget(self.occl_tp_select)
         bottom_hbox.addWidget(button_box)
+
+        self.bottom_bar = QWidget()
+        self.bottom_bar.setObjectName("ioBottomBar")
+        self.bottom_bar.setLayout(bottom_hbox)
+
+        bottom_sep = QFrame()
+        bottom_sep.setProperty("ioSeparator", True)
+        bottom_sep.setFrameShape(QFrame.Shape.HLine)
 
         # Tab 1
         vbox1 = QVBoxLayout()
@@ -329,8 +597,29 @@ class ImgOccEdit(QDialog):
         vbox1.addWidget(self.svg_edit_loader, stretch=1)
 
         # Tab 2
-        # vbox2 fields are variable and added by setupFields() at a later point
+        # Rows are variable and added by setupFields() at a later point. The
+        # form lives in a scroll area so that note types with many fields stay
+        # usable in a small window.
+        self.fields_form = QFormLayout()
+        self.fields_form.setContentsMargins(18, 16, 18, 16)
+        self.fields_form.setSpacing(10)
+        self.fields_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop
+        )
+        self.fields_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+
+        fields_inner = QWidget()
+        fields_inner.setLayout(self.fields_form)
+        self.fields_scroll = QScrollArea()
+        self.fields_scroll.setWidgetResizable(True)
+        self.fields_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.fields_scroll.setWidget(fields_inner)
+
         self.vbox2 = QVBoxLayout()
+        self.vbox2.setContentsMargins(0, 0, 0, 0)
+        self.vbox2.addWidget(self.fields_scroll)
 
         # Main Tab Widget
         tab1 = QWidget()
@@ -348,14 +637,19 @@ class ImgOccEdit(QDialog):
 
         # Main Window
         vbox_main = QVBoxLayout()
-        vbox_main.setContentsMargins(0, 5, 0, 5)
+        vbox_main.setContentsMargins(10, 8, 10, 0)
+        vbox_main.setSpacing(0)
         vbox_main.addWidget(self.tab_widget)
-        vbox_main.addLayout(bottom_hbox)
+        vbox_main.addWidget(bottom_sep)
+        vbox_main.addWidget(self.bottom_bar)
         self.setLayout(vbox_main)
-        self.setMinimumWidth(640)
+        self.setMinimumWidth(820)
+        self.setMinimumHeight(560)
+        self.resize(1100, 780)
         self.tab_widget.setCurrentIndex(0)
         self.svg_edit.setFocus()
         self.showSvgEdit(False)
+        self.applyTheme()
 
         # Define and connect key bindings
 
@@ -386,7 +680,6 @@ class ImgOccEdit(QDialog):
     def changeImage(self):
         self.imgoccadd.onChangeImage()
         self.fitImageCanvas()
-        self.fitImageCanvas(delay=100)
 
     def defaultAction(self, close):
         if self.mode == "add":
@@ -418,45 +711,40 @@ class ImgOccEdit(QDialog):
 
     def resetFields(self):
         """Reset all widgets. Needed for changes to the note type"""
-        layout = self.vbox2
-        for i in reversed(list(range(layout.count()))):
-            item = layout.takeAt(i)
-            layout.removeItem(item)
-            if item.widget():
-                item.widget().setParent(None)
-            elif item.layout():
-                sublayout = item.layout()
-                sublayout.setParent(None)
-                for i in reversed(list(range(sublayout.count()))):
-                    subitem = sublayout.takeAt(i)
-                    sublayout.removeItem(subitem)
-                    subitem.widget().setParent(None)
-        self.tags_hbox.setParent(None)
+        # takeAt rather than removeRow: the tags and deck widgets are long
+        # lived and get re-added by the next setupFields() call, so they must
+        # not be deleted here.
+        while self.fields_form.count():
+            item = self.fields_form.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        self.tedit = {}
+        self.tlabel = {}
+        self._field_order = []
 
     def setupFields(self, flds):
         """Setup dialog text edits based on note type fields"""
         self.tedit = {}
         self.tlabel = {}
         self.flds = flds
+        # Focus order for the Ctrl+1..9 shortcuts, which used to index the
+        # layout directly. A QFormLayout has no equivalent traversal.
+        self._field_order = []
         for i in flds:
             if i["name"] in self.ioflds_priv:
                 continue
-            hbox = QHBoxLayout()
-            tedit = QPlainTextEdit()
+            tedit = IOFieldEdit()
+            tedit.setMinimumHeight(64)
             label = QLabel(i["name"])
-            hbox.addWidget(label)
-            hbox.addWidget(tedit)
-            tedit.setTabChangesFocus(True)
-            tedit.setMinimumHeight(40)
-            label.setFixedWidth(70)
+            label.setProperty("ioMuted", True)
+            self.fields_form.addRow(label, tedit)
             self.tedit[i["name"]] = tedit
             self.tlabel[i["name"]] = label
-            self.vbox2.addLayout(hbox)
+            self._field_order.append(i["name"])
 
-        self.tags_hbox.addWidget(self.tags_label)
-        self.tags_hbox.addWidget(self.tags_edit)
-        self.vbox2.addLayout(self.tags_hbox)
-        self.vbox2.addWidget(self.deck_container)
+        self.fields_form.addRow(self.tags_label, self.tags_edit)
+        self.fields_form.addRow(self.deck_container)
         # switch Tab focus order of deckchooser and tags_edit (
         # for some reason it's the wrong way around by default):
         self.tab2.setTabOrder(self.tags_edit, self.deckChooser.deck)
@@ -478,6 +766,7 @@ class ImgOccEdit(QDialog):
             dl_txt = _("Deck")
             ttl = _("Image Occlusion Enhanced - Add Mode")
             bl_txt = _("Add Cards:")
+            self._setPrimaryButton(self.ao_btn)
         else:
             for i in hide_on_add:
                 i.show()
@@ -490,9 +779,22 @@ class ImgOccEdit(QDialog):
             dl_txt = _("Deck for <i>Add new cards</i>")
             ttl = _("Image Occlusion Enhanced - Editing Mode")
             bl_txt = _("Type:")
+            self._setPrimaryButton(self.edit_btn)
         self.deckChooser.deckLabel.setText(dl_txt)
         self.setWindowTitle(ttl)
         self.bottom_label.setText(bl_txt)
+
+    def _setPrimaryButton(self, primary):
+        """Give the mode's main action visual emphasis.
+
+        QSS matches on the dynamic property, and Qt only re-evaluates that
+        after an unpolish/polish cycle, so the style has to be refreshed by
+        hand rather than just setting the property.
+        """
+        for btn in (self.ao_btn, self.oa_btn, self.edit_btn, self.new_btn):
+            btn.setProperty("ioPrimary", btn is primary)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def showSvgEdit(self, state):
         if not state:
@@ -516,17 +818,12 @@ class ImgOccEdit(QDialog):
             self.tab_widget.setCurrentIndex(0)
 
     def focusField(self, idx):
-        """Focus field in vbox2 layout by index number"""
+        """Focus field by index number"""
         self.tab_widget.setCurrentIndex(1)
-        target_item = self.vbox2.itemAt(idx)
-        if not target_item:
+        if idx < 0 or idx >= len(self._field_order):
             return
-        target_layout = target_item.layout()
-        target_widget = target_item.widget()
-        if target_layout:
-            target = target_layout.itemAt(1).widget()
-        elif target_widget:
-            target = target_widget
+        target = self.tedit[self._field_order[idx]]
+        self.fields_scroll.ensureWidgetVisible(target)
         target.setFocus()
 
     def focusTags(self):
@@ -539,19 +836,25 @@ class ImgOccEdit(QDialog):
             fn = i["name"]
             if fn in self.ioflds_priv or fn in self.ioflds_prsv:
                 continue
-            self.tedit[fn].setPlainText("")
+            self.tedit[fn].setFieldHtml("")
 
     def resetAllFields(self):
         """Reset all fields"""
         self.resetMainFields()
         for i in self.ioflds_prsv:
-            self.tedit[i].setPlainText("")
+            self.tedit[i].setFieldHtml("")
 
-    def fitImageCanvas(self, delay: int = 5):
+    def fitImageCanvas(self):
+        """Fit the canvas to its background image.
+
+        Waits for the image to finish loading rather than guessing with a
+        timeout, which is what made the editor so often open at a useless zoom
+        level (issue #92). Fits immediately when the image is already decoded,
+        so this is also the right thing to bind to the Ctrl+F shortcut.
+        """
+        if not self.svg_edit:
+            return
         self.svg_edit.eval(
-            f"""
-setTimeout(function(){{
-    svgCanvas.zoomChanged('', 'canvas');
-}}, {delay})
-"""
+            "if (window.ioFitWhenReady) { window.ioFitWhenReady(); }"
+            " else { svgCanvas.zoomChanged('', 'canvas'); }"
         )

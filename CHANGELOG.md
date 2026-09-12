@@ -12,6 +12,23 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 
 ## [Unreleased]
 
+### Added
+
+- Reworked the look of the editor. The Qt window and the embedded mask editor now share one modern light/dark theme that follows Anki's own, including live updates when you switch themes while the editor is open. The mask editor's 2009-era icon set has been replaced with a monochrome one that recolours with the theme.
+- The text tool now supports **multiple lines**. Typing still happens directly on the image, exactly as before - press Enter for a line break and Escape to finish. Lines are stored as SVG `<tspan>` elements, and single-line labels are still written exactly as before.
+- Fields in the *Fields* tab accept **pasted and dropped images**, which are saved to your collection's media folder and shown inline while editing instead of appearing as a file path.
+- The *Fields* tab now scrolls, so note types with many fields remain usable in a small window.
+
+### Fixed
+
+- Text labels can no longer be stretched out of shape. Dragging a corner handle now scales the font size uniformly, and the side handles - which used to squash glyphs along one axis - are gone. Rotation still works.
+- Fixed adding cards failing with `'NoneType' object has no attribute 'encode'` whenever the image contained an arrowhead or any other path. The bundled SVG-Edit relied on `pathSegList`, an SVG API Chromium removed in 2016 (#86, #116, #331).
+- Fixed text drawn in the masks layer being turned into its own card, which caused "Hide One, Guess One" to strip every other label off the question. Text in the masks layer is now treated as a label and appears on every generated card. Notes generated from text before this change keep working when re-edited (#222, #283).
+- Fixed the canvas frequently opening at an unusably small zoom, which made pressing Ctrl+F a habit. The image is now fitted once it has actually loaded and the editor has been laid out, rather than after a guessed delay (#92, #179).
+- Removed the add-on's "Open Image" entry from the editor context menu on Anki 24.11 and later, where Anki provides its own and ours showed up as a duplicate (#318).
+- Fixed `conf key imgocc should be fetched with col.get_config()` warnings being printed on every launch; the synced configuration now uses the supported API (#147, #261).
+- Fixed the hidden ID field staying visible in the note editor on current Anki versions, caused by reading an editor field before it had finished initialising.
+
 ## [1.4.0] - 2022-04-09
 
 ### [Download](https://github.com/glutanimate/image-occlusion-enhanced/releases/tag/v1.4.0)

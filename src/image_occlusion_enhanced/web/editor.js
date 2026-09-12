@@ -33,16 +33,38 @@ Any modifications to this file must keep this entire header intact.
 const NoteEditor = require("anki/NoteEditor");
 
 class ImageOcclusionEditorAdapter {
-  markIdField(index) {
-    const idField = NoteEditor.instances[0].fields[index];
-    if (!idField) {
-      return;
-    }
-    idField.element.then((element) => {
-      {
+  /**
+   * Tag the hidden ID field so editor.css can hide it.
+   *
+   * This runs as soon as a note is loaded, which can be before the editor has
+   * finished constructing its fields. Reading `.element` off a field that is
+   * not ready yet threw "Cannot read properties of undefined (reading 'then')"
+   * and left the ID field visible, so retry briefly instead of assuming the
+   * field is there. `element` is a promise in current Anki but has been a
+   * plain node in the past, so handle both.
+   */
+  markIdField(index, remainingAttempts = 20) {
+    const apply = (element) => {
+      if (element && element.classList) {
         element.classList.add("ionote-field-id");
       }
-    });
+    };
+
+    const instance = NoteEditor.instances && NoteEditor.instances[0];
+    const field = instance && instance.fields && instance.fields[index];
+    const element = field && field.element;
+
+    if (element && typeof element.then === "function") {
+      element.then(apply).catch(() => {});
+      return;
+    }
+    if (element && element.nodeType === 1) {
+      apply(element);
+      return;
+    }
+    if (remainingAttempts > 0) {
+      setTimeout(() => this.markIdField(index, remainingAttempts - 1), 50);
+    }
   }
 }
 

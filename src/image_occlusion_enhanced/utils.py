@@ -47,6 +47,27 @@ from ._vendor.imagesize import imagesize
 from .consts import SUPPORTED_BITMAP_FORMATS
 
 
+def anki_has_open_image() -> bool:
+    """Whether Anki provides its own "Open Image" context-menu entry.
+
+    Added in Anki 24.11, which is why ours now shows up twice (issue #318).
+    Versions switched from 2.1.x to a calendar scheme in 23.10, so anything
+    still on the 2.x line predates the feature.
+    """
+    try:
+        from anki.buildinfo import version
+    except (ImportError, ModuleNotFoundError):
+        return False
+    parts = version.split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return False
+    if major < 20:  # legacy 2.1.x versioning
+        return False
+    return (major, minor) >= (24, 11)
+
+
 def path_to_url(path: str) -> str:
     """URL-encode local path"""
     return urllib.parse.urljoin("file:", urllib.request.pathname2url(path))

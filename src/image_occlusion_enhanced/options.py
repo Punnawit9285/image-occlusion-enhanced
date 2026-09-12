@@ -48,6 +48,8 @@ from aqt.qt import (
     QIcon,
     QLabel,
     QLineEdit,
+    QPainter,
+    QPen,
     QPixmap,
     QPushButton,
     QSize,
@@ -60,6 +62,7 @@ from aqt.utils import showInfo
 from .config import *
 from .lang import _
 from .logger import logger
+from .theme import isNightMode, qtStylesheet
 
 
 class GrabKey(QDialog):
@@ -312,6 +315,7 @@ class ImgOccOpts(QDialog):
         self.setMinimumWidth(800)
         self.setMinimumHeight(640)
         self.setWindowTitle(_("Image Occlusion Enhanced Options"))
+        self.setStyleSheet(qtStylesheet(isNightMode()))
 
     def create_horizontal_rule(self):
         """
@@ -356,6 +360,13 @@ class ImgOccOpts(QDialog):
         qcolour = QColor(0, 0, 0)
         qcolour.setNamedColor("#" + color)
         pixmap.fill(qcolour)
+        # Outline the swatch: the default line colour is near-black, which is
+        # indistinguishable from the surrounding button in dark mode.
+        painter = QPainter(pixmap)
+        outline = QColor(255, 255, 255, 90) if isNightMode() else QColor(0, 0, 0, 70)
+        painter.setPen(QPen(outline, 1))
+        painter.drawRect(0, 0, pixmap.width() - 1, pixmap.height() - 1)
+        painter.end()
         button.setIcon(QIcon(pixmap))
         button.setIconSize(QSize(128, 18))
 
@@ -375,17 +386,20 @@ class ImgOccOpts(QDialog):
         modified = False
         model = getOrCreateModel()
         flds = model["flds"]
+        # get_config hands back a copy, so the mapping is edited locally and
+        # written back once at the end rather than mutated in place.
+        io_conf = getColConfig()
         for key in list(self.lnedit.keys()):
             if not self.lnedit[key].isModified():
                 continue
             name = self.lnedit[key].text()
-            oldname = mw.col.conf["imgocc"]["flds"][key]
+            oldname = io_conf["flds"][key]
             if name is None or not name.strip() or name == oldname:
                 continue
             fnames = mw.col.models.fieldNames(model)
             if name in fnames and oldname not in fnames:
                 # case: imported cards, fields not corresponding to config
-                mw.col.conf["imgocc"]["flds"][key] = name
+                io_conf["flds"][key] = name
                 modified = True
                 continue
             idx = fnames.index(oldname)
@@ -394,13 +408,14 @@ class ImgOccOpts(QDialog):
                 # rename note type fields
                 mw.col.models.renameField(model, fld, name)
                 # update imgocc field-id <-> field-name assignment
-                mw.col.conf["imgocc"]["flds"][key] = name
+                io_conf["flds"][key] = name
                 modified = True
                 logger.debug(
                     _("Renamed %(old_name)s, %(new_name)s"),
                     {"old_name": oldname, "new_name": name},
                 )
         if modified:
+            setColConfig(io_conf)
             flds = model["flds"]
 
         return (modified, flds)
@@ -415,15 +430,16 @@ class ImgOccOpts(QDialog):
             return
         if modified and hasattr(mw, "ImgOccEdit"):
             self.resetIoEditor(flds)
-        mw.col.conf["imgocc"]["ofill"] = self.ofill
-        mw.col.conf["imgocc"]["qfill"] = self.qfill
-        mw.col.conf["imgocc"]["scol"] = self.scol
-        mw.col.conf["imgocc"]["swidth"] = self.swidth_sel.value()
-        mw.col.conf["imgocc"]["fsize"] = self.fsize_sel.value()
-        mw.col.conf["imgocc"]["font"] = self.font_sel.currentFont().family()
-        mw.col.conf["imgocc"]["skip"] = self.skipped.text().split(",")
+        io_conf = getColConfig()
+        io_conf["ofill"] = self.ofill
+        io_conf["qfill"] = self.qfill
+        io_conf["scol"] = self.scol
+        io_conf["swidth"] = self.swidth_sel.value()
+        io_conf["fsize"] = self.fsize_sel.value()
+        io_conf["font"] = self.font_sel.currentFont().family()
+        io_conf["skip"] = self.skipped.text().split(",")
+        setColConfig(io_conf)
         mw.pm.profile["imgocc"]["hotkey"] = self.hotkey
-        mw.col.setMod()
         self.close()
 
     def resetIoEditor(self, flds):

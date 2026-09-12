@@ -52,6 +52,7 @@ from .consts import *
 from .dialogs import ioCritical, ioHelp
 from .lang import _
 from .options import ImgOccOpts
+from .utils import anki_has_open_image
 from .web import setup_webview_injections
 from .qt import qconnect
 
@@ -82,8 +83,9 @@ def on_image_occlusion_button(self, origin=None, image_path=None):
     io_model = getOrCreateModel()
     if io_model:
         io_model_fields = mw.col.models.fieldNames(io_model)
-        if "imgocc" in mw.col.conf:
-            dflt_fields = list(mw.col.conf["imgocc"]["flds"].values())
+        io_conf = getColConfig()
+        if io_conf:
+            dflt_fields = list(io_conf["flds"].values())
         else:
             dflt_fields = list(IO_FLDS.values())
         # note type integrity check
@@ -179,8 +181,11 @@ def maybe_add_image_menu(webview: "EditorWebView", menu: QMenu):
                 editor, image_path=u
             ),
         )
-        a = menu.addAction(_("Open Image"))
-        qconnect(a.triggered, lambda _, u=path: open_image(u))
+        if not anki_has_open_image():
+            # Anki ships its own entry from 24.11 on; adding ours as well just
+            # gives the user the same command twice (issue #318).
+            a = menu.addAction(_("Open Image"))
+            qconnect(a.triggered, lambda _, u=path: open_image(u))
 
 
 def get_js_to_inject(note) -> Optional[str]:
