@@ -34,11 +34,11 @@
 Handles all minor utility dialogs
 """
 
-from anki.hooks import addHook, remHook
 from aqt import mw
 from aqt.qt import QMessageBox, Qt, sip
 
 # from .config import *
+from .compat import add_legacy_hook, remove_legacy_hook
 from .lang import _
 
 # Help and support resource links
@@ -302,7 +302,9 @@ def ioHelp(msgkey, title=_("Image Occlusion Enhanced Help"), text="", parent=Non
 
         profile_will_close.append(onProfileUnload)
     except (ImportError, ModuleNotFoundError):
-        addHook("unloadProfile", onProfileUnload)
+        add_legacy_hook("unloadProfile", onProfileUnload)
 
-    mbox.finished.connect(lambda: remHook("unloadProfile", onProfileUnload))
+    mbox.finished.connect(
+        lambda: remove_legacy_hook("unloadProfile", onProfileUnload)
+    )
     mbox.show()

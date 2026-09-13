@@ -35,6 +35,16 @@ Handles the IO note type and card template
 """
 
 from .config import *
+from .compat import (
+    add_field,
+    add_notetype,
+    add_template,
+    new_field,
+    new_notetype,
+    new_template,
+    notetype_by_name,
+    save_notetype,
+)
 
 # DEFAULT CARD TEMPLATES
 
@@ -274,33 +284,31 @@ additions_by_version = [
 
 
 def add_io_model(col):
-    models = col.models
-    io_model = models.new(IO_MODEL_NAME)
+    io_model = new_notetype(col, IO_MODEL_NAME)
     # Add fields:
     for i in IO_FLDS_IDS:
-        fld = models.newField(IO_FLDS[i])
+        fld = new_field(col, IO_FLDS[i])
         if i == "note_id":
             fld["size"] = 0
-        models.addField(io_model, fld)
+        add_field(col, io_model, fld)
     # Add template
-    template = models.newTemplate(IO_CARD_NAME)
+    template = new_template(col, IO_CARD_NAME)
     template["qfmt"] = iocard_front
     template["afmt"] = iocard_back
     io_model["css"] = iocard_css
     io_model["sortf"] = 1  # set sortfield to header
-    models.addTemplate(io_model, template)
-    models.add(io_model)
-    return io_model
+    add_template(col, io_model, template)
+    return add_notetype(col, io_model)
 
 
 def reset_template(col):
     print("Resetting IO Enhanced card template to defaults")
-    io_model = col.models.byName(IO_MODEL_NAME)
+    io_model = notetype_by_name(col, IO_MODEL_NAME)
     template = io_model["tmpls"][0]
     template["qfmt"] = iocard_front
     template["afmt"] = iocard_back
     io_model["css"] = iocard_css
-    col.models.save()
+    save_notetype(col, io_model)
     return io_model
 
 
@@ -315,7 +323,7 @@ def update_template(col, old_version):
         for lst, addition in zip(additions, components):
             lst.append(addition)
 
-    io_model = col.models.byName(IO_MODEL_NAME)
+    io_model = notetype_by_name(col, IO_MODEL_NAME)
 
     if not io_model:
         return add_io_model(col)
@@ -324,5 +332,5 @@ def update_template(col, old_version):
     template["qfmt"] += "\n".join(additions[0])
     template["afmt"] += "\n".join(additions[1])
     io_model["css"] += "\n".join(additions[2])
-    col.models.save()
+    save_notetype(col, io_model)
     return io_model

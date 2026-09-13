@@ -40,10 +40,19 @@ import uuid
 from typing import Union
 from xml.dom import minidom
 
-from anki.notes import Note
 from aqt import mw
 from aqt.utils import tooltip
 
+from .compat import (
+    add_note,
+    begin_undo_group,
+    end_undo_group,
+    find_notes,
+    get_note,
+    new_note,
+    remove_notes,
+    update_note,
+)
 from .config import *
 from .dialogs import ioAskUser
 from .lang import _, ngettext
@@ -97,7 +106,14 @@ class ImgOccNoteGenerator(object):
         loadConfig(self)
 
     def generateNotes(self) -> Union[list, bool]:
-        """Generate new notes"""
+        """Generate new notes as a single undoable step"""
+        token = begin_undo_group(mw.col, _("Add Image Occlusion Cards"))
+        try:
+            return self._generateNotes()
+        finally:
+            end_undo_group(mw.col, token)
+
+    def _generateNotes(self) -> Union[list, bool]:
         self.uniq_id = str(uuid.uuid4()).replace("-", "")
         self.occl_id = "%s-%s" % (self.uniq_id, self.occl_tp)
 
@@ -115,7 +131,6 @@ class ImgOccNoteGenerator(object):
         image_path = mw.col.media.add_file(self.image_path)
         img = path_to_img_element(image_path)
 
-        mw.checkpoint("Adding Image Occlusion Cards")
         notes = []
         for nr, idx in enumerate(self.mnode_indexes):
             note_id = self.mnode_ids[idx]
@@ -132,7 +147,14 @@ class ImgOccNoteGenerator(object):
         return notes
 
     def updateNotes(self):
-        """Update existing notes"""
+        """Update existing notes as a single undoable step"""
+        token = begin_undo_group(mw.col, _("Edit Image Occlusion Cards"))
+        try:
+            return self._updateNotes()
+        finally:
+            end_undo_group(mw.col, token)
+
+    def _updateNotes(self):
         state = "default"
         self.uniq_id = self.opref["uniq_id"]
         self.occl_id = "%s-%s" % (self.uniq_id, self.occl_tp)
@@ -148,7 +170,6 @@ class ImgOccNoteGenerator(object):
                 )
             )
             return False
-        mw.checkpoint("Editing Image Occlusion Cards")
         ret = self._deleteAndIdNotes(mlayer_node)
         if not ret:
             # confirmation window rejected
@@ -310,7 +331,7 @@ class ImgOccNoteGenerator(object):
         """Search collection for notes with given ID"""
         query = '"%s:%s*"' % (self.ioflds["id"], note_id)
         logger.debug("query %s", query)
-        res = mw.col.findNotes(query)
+        res = find_notes(mw.col, query)
         return res
 
     def _findAllNotes(self):
@@ -319,7 +340,7 @@ class ImgOccNoteGenerator(object):
         res = self._findByNoteId(old_occl_id)
         self.nids = {}
         for nid in res:
-            note_id = mw.col.getNote(nid)[self.ioflds["id"]]
+            note_id = get_note(mw.col, nid)[self.ioflds["id"]]
             self.nids[note_id] = nid
         logger.debug("--------------------")
         logger.debug("res %s", res)
@@ -434,7 +455,7 @@ class ImgOccNoteGenerator(object):
                 return False
 
         if deleted_nids:
-            mw.col.remNotes(deleted_nids)
+            remove_notes(mw.col, deleted_nids)
         return (del_count, new_count)
 
     def _generateMaskSVGsFor(self, side):
@@ -515,9 +536,9 @@ class ImgOccNoteGenerator(object):
 
         self.model["did"] = self.did
         if nid:
-            note = mw.col.getNote(nid)
+            note = get_note(mw.col, nid)
         else:
-            note = Note(mw.col, model)
+            note = new_note(mw.col, model)
 
         # add fields to note
         note.tags = self.tags
@@ -528,10 +549,11 @@ class ImgOccNoteGenerator(object):
                 note[fname] = fields[fname]
 
         if nid:
-            note.flush()
+            update_note(mw.col, note)
             logger.debug("!noteflush %s", note)
         else:
-            mw.col.addNote(note)
+            # Pass the deck explicitly rather than relying on model["did"]
+            add_note(mw.col, note, self.did)
             logger.debug("!notecreate %s", note)
 
         return note

@@ -29,6 +29,15 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 - Fixed `conf key imgocc should be fetched with col.get_config()` warnings being printed on every launch; the synced configuration now uses the supported API (#147, #261).
 - Fixed the hidden ID field staying visible in the note editor on current Anki versions, caused by reading an editor field before it had finished initialising.
 
+### Compatibility
+
+- Calls into Anki now go through a small compatibility layer that prefers each current API and falls back to the older one. Anki keeps deprecated methods such as `findNotes`, `note.flush()` or `models.byName` working for a while and then removes them; the add-on no longer depends on any of them directly, so a release that drops one will not break it. Both paths are tested, including against a simulated older Anki.
+- Adding or editing a batch of occlusion cards is a single undoable step again. The add-on relied on `mw.checkpoint()`, which Anki had quietly turned into a no-op.
+- New cards are added to the chosen deck by passing it to Anki directly, instead of temporarily changing the note type's default deck.
+- The patch that keeps the reviewer's scroll position when showing the answer is now optional: if a future Anki renames the private method it hooks into, the add-on still loads and only that nicety is lost. Previously the error would have stopped the add-on from loading at all.
+- Reduced reliance on private web view internals in the mask editor (#316): if Anki stops exposing the queue the editor borrows, it falls back to its own.
+- Tested on Anki 26.05.
+
 ## [1.4.0] - 2022-04-09
 
 ### [Download](https://github.com/glutanimate/image-occlusion-enhanced/releases/tag/v1.4.0)

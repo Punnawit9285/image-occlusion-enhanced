@@ -57,8 +57,8 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
 )
-from aqt.utils import showInfo
 
+from .compat import field_names, rename_field, showInfo
 from .config import *
 from .lang import _
 from .logger import logger
@@ -396,7 +396,7 @@ class ImgOccOpts(QDialog):
             oldname = io_conf["flds"][key]
             if name is None or not name.strip() or name == oldname:
                 continue
-            fnames = mw.col.models.fieldNames(model)
+            fnames = field_names(mw.col, model)
             if name in fnames and oldname not in fnames:
                 # case: imported cards, fields not corresponding to config
                 io_conf["flds"][key] = name
@@ -406,7 +406,7 @@ class ImgOccOpts(QDialog):
             fld = flds[idx]
             if fld:
                 # rename note type fields
-                mw.col.models.renameField(model, fld, name)
+                rename_field(mw.col, model, fld, name)
                 # update imgocc field-id <-> field-name assignment
                 io_conf["flds"][key] = name
                 modified = True

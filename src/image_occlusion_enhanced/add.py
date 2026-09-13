@@ -40,8 +40,9 @@ import tempfile
 from anki.config import Config
 from aqt import mw
 from aqt.qt import QApplication, QFileDialog, Qt, QUrl, QUrlQuery
-from aqt.utils import showWarning, tooltip
+from aqt.utils import tooltip
 
+from .compat import field_names, refresh_main_window, selected_deck_id, showWarning
 from .config import *
 from .consts import SUPPORTED_EXTENSIONS
 from .dialogs import ioCritical, ioInfo
@@ -144,11 +145,11 @@ class ImgOccAdd(object):
         # FIXME: Not necessarily up-to-date with new tag edit contents
         self.opref["tags"] = note.tags
         if self.origin == "addcards":
-            self.opref["did"] = self.ed.parentWindow.deckChooser.selectedId()
+            self.opref["did"] = selected_deck_id(self.ed.parentWindow.deckChooser)
         else:
-            self.opref["did"] = mw.col.db.scalar(
-                "select did from cards where id = ?", note.cards()[0].id
-            )
+            # Read the deck off the card object instead of querying the cards
+            # table directly, which ties the add-on to Anki's database schema.
+            self.opref["did"] = note.cards()[0].did
 
     def getIONoteData(self, note):
         """Select image based on mode and set original field contents"""
@@ -386,7 +387,7 @@ class ImgOccAdd(object):
         if close:
             dialog.close()
 
-        mw.reset()
+        refresh_main_window()
 
     def onEditNotesButton(self, choice):
         dialog = self.imgoccedit
@@ -428,7 +429,12 @@ class ImgOccAdd(object):
             # display across all web views the images could be presented in.
             # (i.e. cache-busting IO images in the reviewer alone via JS is not
             # sufficient)
-            mw.web.page().profile().clearHttpCache()
+            try:
+                mw.web.page().profile().clearHttpCache()
+            except Exception as e:
+                # Stale images may linger until restart; not worth failing
+                # an edit that has already been saved.
+                logger.warning("could not clear web cache: %s", e)
             dialog.close()
 
             # write a dummy file to update collection.media modtime and
@@ -443,11 +449,23 @@ class ImgOccAdd(object):
         def refresh_editor():
             # FIXME: Incredibly ugly hack to refresh editor web view in order to make
             # changes to images visible
-            self.ed.outerLayout.removeWidget(self.ed.web)
-            self.ed.web.reload()
-            self.ed.web.stdHtml("")
-            self.ed.setupWeb()
-            self.ed.loadNote()
+            ed = self.ed
+            # These are editor internals rather than public API. Only tear the
+            # web view down if every piece needed to rebuild it is present, so
+            # a future Anki cannot leave the editor half-dismantled; a plain
+            # note reload still shows the new masks.
+            web = getattr(ed, "web", None)
+            if (
+                web is not None
+                and hasattr(ed, "outerLayout")
+                and hasattr(ed, "setupWeb")
+                and hasattr(web, "stdHtml")
+            ):
+                ed.outerLayout.removeWidget(web)
+                web.reload()
+                web.stdHtml("")
+                ed.setupWeb()
+            ed.loadNote()
 
         refresh_editor()
 
@@ -455,10 +473,12 @@ class ImgOccAdd(object):
             # FIXME: Incredibly ugly hack to refresh reviewer web view in  order to make
             # changes to images visible. Other solutions like
             # reviewer._initWeb(); reviewer._showQuestion() do not seem to work reliably
+            if not hasattr(mw, "moveToState"):
+                return
             mw.moveToState("overview")
             mw.progress.single_shot(100, lambda: mw.moveToState("review"))
 
-        mw.reset()
+        refresh_main_window()
 
         if mw.state == "review":
             mw.progress.single_shot(100, refresh_reviewer)
@@ -493,7 +513,7 @@ class ImgOccAdd(object):
         """Get fields and tags from ImgOccEdit while checking note type"""
         fields = {}
         # note type integrity check:
-        io_model_fields = mw.col.models.fieldNames(self.model)
+        io_model_fields = field_names(mw.col, self.model)
         if not all(x in io_model_fields for x in list(self.ioflds.values())):
             ioCritical("model_error", help="notetype", parent=dialog)
             return False

@@ -40,7 +40,6 @@ import uuid
 from typing import List, Optional
 
 from anki.config import Config
-from anki.hooks import addHook, remHook
 from aqt import deckchooser, mw, tagedit, webview
 from aqt.qt import (
     QApplication,
@@ -72,8 +71,15 @@ from aqt.qt import (
     sip,
     pyqtSignal,
 )
-from aqt.utils import restoreGeom, saveGeom, askUser, tooltip
+from aqt.utils import tooltip
 
+from .compat import (
+    add_legacy_hook,
+    askUser,
+    remove_legacy_hook,
+    restoreGeom,
+    saveGeom,
+)
 from .config import *
 from .consts import *
 from .dialogs import ioHelp
@@ -95,6 +101,9 @@ class ImgOccWebView(webview.AnkiWebView):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self._domDone = False
+        # Used only when this Anki's web view no longer exposes the private
+        # _queueAction/_pendingActions queue we normally borrow (issue #316).
+        self._io_pending = []
 
     def _onBridgeCmd(self, cmd):
         # ignore webchannel messages that arrive after underlying webview
@@ -113,16 +122,29 @@ class ImgOccWebView(webview.AnkiWebView):
 
     def runOnLoaded(self, callback):
         self._domDone = False
-        self._queueAction("callback", callback)
+        if hasattr(self, "_queueAction") and hasattr(self, "_pendingActions"):
+            self._queueAction("callback", callback)
+        else:
+            self._io_pending.append(callback)
 
     def _maybeRunActions(self):
-        while self._pendingActions and self._domDone:
-            name, args = self._pendingActions.pop(0)
+        # Anki's own queue, when it still has one. Everything queued on this
+        # view - including Anki's evals - is held back until SVG-Edit reports
+        # ready, because svgCanvas does not exist before that.
+        pending = getattr(self, "_pendingActions", None)
+        while pending and self._domDone:
+            name, args = pending.pop(0)
 
             if name == "eval":
-                self._evalWithCallback(*args)
+                self._runJs(*args)
             elif name == "setHtml":
-                self._setHtml(*args)
+                set_html = getattr(self, "_setHtml", None)
+                if set_html is not None:
+                    set_html(*args)
+                else:
+                    from aqt.qt import QWebEngineView
+
+                    QWebEngineView.setHtml(self, *args)
             elif name == "callback":
                 callback = args[0]
                 callback()
@@ -130,6 +152,23 @@ class ImgOccWebView(webview.AnkiWebView):
                 raise Exception(
                     _("unknown action: {action_name}").format(action_name=name)
                 )
+
+        while self._io_pending and self._domDone:
+            self._io_pending.pop(0)()
+
+    def _runJs(self, js, callback=None):
+        """Run JS immediately, bypassing Anki's queue.
+
+        The public evalWithCallback() would re-enqueue onto the very queue
+        being drained here and loop forever, so fall back to the raw Qt call.
+        """
+        eval_now = getattr(self, "_evalWithCallback", None)
+        if eval_now is not None:
+            eval_now(js, callback)
+        elif callback is not None:
+            self.page().runJavaScript(js, callback)
+        else:
+            self.page().runJavaScript(js)
 
     def onEsc(self):
         self.escape_pressed.emit()
@@ -341,7 +380,8 @@ class ImgOccEdit(QDialog):
 
     def __init__(self, imgoccadd, parent):
         QDialog.__init__(self)
-        mw.setupDialogGC(self)
+        if hasattr(mw, "setupDialogGC"):
+            mw.setupDialogGC(self)
         self.setWindowFlags(Qt.WindowType.Window)
         self.visible = False
         self.imgoccadd = imgoccadd
@@ -357,7 +397,7 @@ class ImgOccEdit(QDialog):
 
             profile_will_close.append(self.onProfileUnload)
         except (ImportError, ModuleNotFoundError):
-            addHook("unloadProfile", self.onProfileUnload)
+            add_legacy_hook("unloadProfile", self.onProfileUnload)
 
     def closeEvent(self, event):
         self._on_close()
@@ -377,7 +417,7 @@ class ImgOccEdit(QDialog):
 
             profile_will_close.remove(self.onProfileUnload)
         except (ImportError, ModuleNotFoundError):
-            remHook("unloadProfile", self.onProfileUnload)
+            remove_legacy_hook("unloadProfile", self.onProfileUnload)
         QDialog.reject(self)
 
     def onProfileUnload(self):
@@ -450,8 +490,12 @@ class ImgOccEdit(QDialog):
         """Set up ImgOccEdit UI"""
         # Main widgets aside from fields
         self.svg_edit = ImgOccWebView(parent=self)
-        self.svg_edit._page = ImgOccWebPage(self.svg_edit._onBridgeCmd)
-        self.svg_edit.setPage(self.svg_edit._page)
+        page = ImgOccWebPage(self.svg_edit._onBridgeCmd)
+        # Hold a reference of our own so the page is never garbage collected;
+        # older Anki versions also read it back from _page.
+        self.svg_edit._io_page = page
+        self.svg_edit._page = page
+        self.svg_edit.setPage(page)
 
         self.svg_edit.escape_pressed.connect(self.reject)
 
@@ -460,7 +504,9 @@ class ImgOccEdit(QDialog):
         self.tags_label.setProperty("ioMuted", True)
         self.deck_container = QWidget()
         self.deckChooser = deckchooser.DeckChooser(mw, self.deck_container, label=True)
-        self.deckChooser.deck.setAutoDefault(False)
+        deck_button = getattr(self.deckChooser, "deck", None)
+        if deck_button is not None:
+            deck_button.setAutoDefault(False)
 
         # workaround for tab focus order issue of the tags entry
         # (this particular section is only needed when the quick deck
@@ -747,7 +793,9 @@ class ImgOccEdit(QDialog):
         self.fields_form.addRow(self.deck_container)
         # switch Tab focus order of deckchooser and tags_edit (
         # for some reason it's the wrong way around by default):
-        self.tab2.setTabOrder(self.tags_edit, self.deckChooser.deck)
+        deck_button = getattr(self.deckChooser, "deck", None)
+        if deck_button is not None:
+            self.tab2.setTabOrder(self.tags_edit, deck_button)
 
     def switchToMode(self, mode):
         """Toggle between add and edit layouts"""
@@ -780,7 +828,9 @@ class ImgOccEdit(QDialog):
             ttl = _("Image Occlusion Enhanced - Editing Mode")
             bl_txt = _("Type:")
             self._setPrimaryButton(self.edit_btn)
-        self.deckChooser.deckLabel.setText(dl_txt)
+        deck_label = getattr(self.deckChooser, "deckLabel", None)
+        if deck_label is not None:
+            deck_label.setText(dl_txt)
         self.setWindowTitle(ttl)
         self.bottom_label.setText(bl_txt)
 

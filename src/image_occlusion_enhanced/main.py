@@ -37,7 +37,6 @@ Sets up buttons and menus and calls other modules.
 import sys
 from typing import TYPE_CHECKING, Optional
 
-from anki.hooks import wrap
 from aqt import mw
 from aqt.addcards import AddCards
 from aqt.editcurrent import EditCurrent
@@ -47,6 +46,7 @@ from aqt.reviewer import Reviewer
 from aqt.utils import tooltip
 
 from .add import ImgOccAdd
+from .compat import field_names, wrap_method
 from .config import *
 from .consts import *
 from .dialogs import ioCritical, ioHelp
@@ -82,7 +82,7 @@ def on_image_occlusion_button(self, origin=None, image_path=None):
     origin = origin or get_editor_parent_instance(self.parentWindow)
     io_model = getOrCreateModel()
     if io_model:
-        io_model_fields = mw.col.models.fieldNames(io_model)
+        io_model_fields = field_names(mw.col, io_model)
         io_conf = getColConfig()
         if io_conf:
             dflt_fields = list(io_conf["flds"].values())
@@ -323,6 +323,11 @@ def setup_main(main_window: "AnkiQt"):
 
     # Reviewer
 
-    # TODO: drop monkey-patch
-    Reviewer._showAnswer = wrap(Reviewer._showAnswer, on_show_answer, "around")
     state_shortcuts_will_change.append(on_mw_state_shortcuts)
+
+    # Keeping the scroll position when revealing the answer still needs a
+    # monkey-patch: no hook fires before the answer renders. It is registered
+    # last and guarded, so if a future Anki renames Reviewer._showAnswer the
+    # add-on still loads and only this cosmetic nicety is lost - previously
+    # the AttributeError would have aborted setup entirely.
+    wrap_method(Reviewer, "_showAnswer", on_show_answer, "around")
