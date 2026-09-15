@@ -34,9 +34,12 @@
 Image Occlusion editor dialog
 """
 
+import base64
 import html
 import os
 import re
+import urllib.parse
+import urllib.request
 import uuid
 from typing import List, Optional
 
@@ -46,6 +49,7 @@ from aqt.qt import (
     QApplication,
     QBrush,
     QBuffer,
+    QByteArray,
     QColor,
     QColorDialog,
     QComboBox,
@@ -251,6 +255,81 @@ def repairStoredHtml(markup: str) -> str:
     repaired = _STRAY_LT.sub("&lt;", repaired)
     repaired = _MARKUP_NEWLINE.sub("><", repaired)
     return repaired.replace("\n", "<br />")
+
+
+# Anki's editor shows MathJax as a rendered picture inside helper elements, and
+# copying puts that markup on the clipboard. The TeX source survives only in the
+# data-mathjax attribute; Qt would drop the lot.
+_MATHJAX_FRAME = re.compile(
+    r"<anki-frame\b([^>]*)>.*?</anki-frame>", flags=re.IGNORECASE | re.DOTALL
+)
+_MATHJAX_ELEMENT = re.compile(
+    r"<anki-mathjax\b([^>]*)>(.*?)</anki-mathjax>", flags=re.IGNORECASE | re.DOTALL
+)
+_DATA_MATHJAX = re.compile(r'data-mathjax="([^"]*)"', flags=re.IGNORECASE)
+_BLOCK_TRUE = re.compile(r'\bblock="true"', flags=re.IGNORECASE)
+_FRAME_MARKER = re.compile(r"</?frame-(?:start|end)\b[^>]*>", flags=re.IGNORECASE)
+_META_TAG = re.compile(r"<meta\b[^>]*>", flags=re.IGNORECASE)
+_BR_TAG = re.compile(r"<br\b[^>]*>", flags=re.IGNORECASE)
+_STYLE_ATTRIBUTE = re.compile(r'style="([^"]*)"', flags=re.IGNORECASE)
+_WHITE_SPACE_NORMAL = re.compile(r"white-space\s*:\s*normal\s*;?", flags=re.IGNORECASE)
+
+_DATA_URL = re.compile(
+    r"^data:([\w/+.-]*)((?:;[\w-]+=[^;,]*)*)(;base64)?,(.*)$", re.DOTALL
+)
+_IMAGE_EXTENSIONS_BY_MIME = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+    "image/bmp": "bmp",
+    "image/avif": "avif",
+}
+_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _texMarkup(tex: str, block: bool) -> str:
+    source = html.unescape(tex)
+    wrapped = ("\\[%s\\]" if block else "\\(%s\\)") % source
+    return html.escape(wrapped, quote=False)
+
+
+def prepareClipboardHtml(markup: str) -> str:
+    """Make HTML copied out of Anki's editor or a web page safe to import.
+
+    Chromium writes every computed style inline when it copies, including
+    white-space: normal on each <br>. Qt applies that to the line break itself
+    and turns it into an ordinary space, which is why a pasted field ran all of
+    its lines together. MathJax is copied as a rendered picture that Qt would
+    drop, so it is put back into the \\( \\) form Anki stores.
+    """
+    if not markup:
+        return markup
+
+    def frame(match):
+        whole = match.group(0)
+        tex = _DATA_MATHJAX.search(whole)
+        if not tex:
+            return _FRAME_MARKER.sub("", whole)
+        return _texMarkup(tex.group(1), bool(_BLOCK_TRUE.search(match.group(1))))
+
+    def element(match):
+        attributes, body = match.group(1), match.group(2)
+        tex = _DATA_MATHJAX.search(attributes)
+        text = tex.group(1) if tex else re.sub(r"<[^>]+>", "", body)
+        return _texMarkup(text, bool(_BLOCK_TRUE.search(attributes)))
+
+    def style(match):
+        return 'style="%s"' % _WHITE_SPACE_NORMAL.sub("", match.group(1))
+
+    markup = _META_TAG.sub("", markup)
+    markup = _MATHJAX_FRAME.sub(frame, markup)
+    markup = _MATHJAX_ELEMENT.sub(element, markup)
+    markup = _FRAME_MARKER.sub("", markup)
+    markup = _BR_TAG.sub("<br>", markup)
+    return _STYLE_ATTRIBUTE.sub(style, markup)
 
 
 class IOFieldEdit(QTextEdit):
@@ -576,7 +655,7 @@ class IOFieldEdit(QTextEdit):
         them.
         """
         source = QTextDocument()
-        source.setHtml(markup)
+        source.setHtml(prepareClipboardHtml(markup))
         cursor = self.textCursor()
         cursor.beginEditBlock()
         block = source.begin()
@@ -595,7 +674,16 @@ class IOFieldEdit(QTextEdit):
             it = block.begin()
             while not it.atEnd():
                 fragment = it.fragment()
-                if fragment.isValid() and not fragment.charFormat().isImageFormat():
+                if not fragment.isValid():
+                    pass
+                elif fragment.charFormat().isImageFormat():
+                    # Pictures copied from Anki's editor or a web page used to
+                    # be skipped here, silently dropping them from the paste.
+                    name = fragment.charFormat().toImageFormat().name()
+                    fname = self._importImageSource(name)
+                    if fname:
+                        self._insertImageElement(fname, cursor)
+                else:
                     cursor.insertText(
                         fragment.text(), self._cleanFormat(fragment.charFormat())
                     )
@@ -667,16 +755,104 @@ class IOFieldEdit(QTextEdit):
         # alongside the text itself. Only paste the image when there is no
         # text, otherwise copying a sentence from Word would paste a picture.
         if source.hasImage() and not self._visibleText(source):
-            data = source.imageData()
-            # imageData() hands back a QImage on some platforms and a QPixmap
-            # on others, so normalise before saving.
-            image = data if isinstance(data, QImage) else QImage(data)
+            image = self._clipboardImage(source)
             if not image.isNull():
                 fname = self._writeImage(image)
                 if fname:
                     self._insertImageElement(fname)
                     return True
         return False
+
+    @staticmethod
+    def _clipboardImage(source) -> QImage:
+        """The clipboard's image, whatever form imageData() hands it back in.
+
+        Depending on the platform and on where the image came from, that is a
+        QImage, a QPixmap or the raw encoded bytes. Passing either of the latter
+        two to QImage() raised a TypeError, which Qt swallows during a paste, so
+        the paste silently did nothing.
+        """
+        data = source.imageData()
+        if isinstance(data, QImage):
+            return data
+        if isinstance(data, QPixmap):
+            return data.toImage()
+        if isinstance(data, (bytes, bytearray, QByteArray)):
+            return QImage.fromData(bytes(data))
+        raw = source.data("application/x-qt-image")
+        if raw is not None and len(raw):
+            return QImage.fromData(bytes(raw))
+        return QImage()
+
+    def _importImageSource(self, src: str) -> Optional[str]:
+        """Bring a pasted <img> source into the media folder.
+
+        Returns the media filename to reference, or None when the picture
+        can't be obtained, in which case it is left out of the paste.
+        """
+        if not src or mw.col is None:
+            return None
+        media_dir = mw.col.media.dir()
+        url = QUrl(src)
+        scheme = url.scheme().lower()
+        try:
+            if scheme == "data":
+                return self._importDataUrl(src)
+            if scheme in ("http", "https"):
+                name = urllib.parse.unquote(os.path.basename(url.path()))
+                # Anki's editor serves the collection's media from a local
+                # server, so its pictures arrive as http://127.0.0.1:port/name.
+                local = url.host().lower() in ("127.0.0.1", "localhost")
+                if local and name and os.path.isfile(os.path.join(media_dir, name)):
+                    return name
+                return self._downloadImage(src, name)
+            if scheme == "file":
+                return self._importLocalFile(url.toLocalFile())
+            if os.path.isabs(src):
+                return self._importLocalFile(src)
+            name = urllib.parse.unquote(src)
+            if os.path.isfile(os.path.join(media_dir, name)):
+                return name
+        except Exception as e:
+            logger.warning("could not import pasted image %s: %s", src[:120], e)
+        return None
+
+    def _importLocalFile(self, path: str) -> Optional[str]:
+        if not os.path.isfile(path):
+            return None
+        with open(path, "rb") as handle:
+            return self._writeMedia(os.path.basename(path), handle.read())
+
+    def _importDataUrl(self, src: str) -> Optional[str]:
+        match = _DATA_URL.match(src)
+        if not match:
+            return None
+        ext = _IMAGE_EXTENSIONS_BY_MIME.get(match.group(1).lower())
+        if not ext:
+            return None
+        payload = match.group(4)
+        if match.group(3):
+            data = base64.b64decode(payload)
+        else:
+            data = urllib.parse.unquote_to_bytes(payload)
+        return self._writeMedia("io-paste-%s.%s" % (uuid.uuid4().hex[:12], ext), data)
+
+    def _downloadImage(self, url: str, name: str) -> Optional[str]:
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            content_type = response.headers.get_content_type().lower()
+            data = response.read(_MAX_DOWNLOAD_BYTES + 1)
+        if not data or len(data) > _MAX_DOWNLOAD_BYTES:
+            return None
+        stem, current = os.path.splitext(name)
+        ext = _IMAGE_EXTENSIONS_BY_MIME.get(content_type)
+        known = _IMAGE_EXTENSIONS_BY_MIME.values()
+        if not ext and current.lstrip(".").lower() in known:
+            ext = current.lstrip(".").lower()
+        if not ext:
+            return None
+        stem = re.sub(r"[^\w.-]+", "_", stem)[:60] or "io-paste"
+        return self._writeMedia("%s.%s" % (stem, ext), data)
 
     def insertImageFile(self, path: str) -> bool:
         try:
@@ -720,7 +896,9 @@ class IOFieldEdit(QTextEdit):
             tooltip(_("Could not add image to the collection"))
             return None
 
-    def _insertImageElement(self, fname: str) -> None:
+    def _insertImageElement(
+        self, fname: str, cursor: Optional[QTextCursor] = None
+    ) -> None:
         path = os.path.join(mw.col.media.dir(), fname)
         image = QImage(path)
         fmt = QTextImageFormat()
@@ -729,7 +907,7 @@ class IOFieldEdit(QTextEdit):
         fmt.setName(fname)
         if not image.isNull() and image.width() > self.MAX_DISPLAY_WIDTH:
             self._scaleForDisplay(fmt, image)
-        self.textCursor().insertImage(fmt)
+        (cursor if cursor is not None else self.textCursor()).insertImage(fmt)
         self.document().setModified(True)
 
 

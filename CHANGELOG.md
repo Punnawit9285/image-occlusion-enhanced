@@ -10,6 +10,17 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 
 :heart: My heartfelt thanks goes out to everyone who has supported this add-on through their tips, contributions, or any other means (you know who you are!). All of this would not have been possible without you. Thank you for being awesome!
 
+## [2.0.1] - 2026-09-15
+
+### [Download](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/tag/v2.0.1)
+
+### Fixed
+
+- Fixed text copied from Anki's own editor losing all of its line breaks when pasted into a field, so that a whole note ran together into one paragraph. Anki's editor copies every line break with an inline `white-space: normal` style, which Qt's HTML import applies to the break itself and turns into a space.
+- Fixed MathJax disappearing from text pasted out of Anki's editor, leaving a gap in the sentence. It is now pasted as the `\(…\)` source Anki stores, instead of the rendered picture that could not be kept.
+- Fixed pictures being dropped from pasted rich text. Images copied along with text from Anki's editor or a web page, or embedded as data URLs, are now saved to the media folder and pasted inline.
+- Fixed pasting some copied images doing nothing at all. When the clipboard handed an image over as a pixmap or as raw bytes, converting it raised an error that the paste silently swallowed.
+
 ## [2.0.0] - 2026-09-15
 
 ### [Download](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/tag/v2.0.0)
@@ -511,6 +522,7 @@ A tremendous version jump, I know, but this is the most comprehensive update to 
 - Still needs a lot of testing!
 
 
+[2.0.1]: https://github.com/Punnawit9285/image-occlusion-enhanced/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Punnawit9285/image-occlusion-enhanced/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.3.0-alpha6...v1.4.0
 [1.3.0-alpha6]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.3.0-alpha5...v1.3.0-alpha6
