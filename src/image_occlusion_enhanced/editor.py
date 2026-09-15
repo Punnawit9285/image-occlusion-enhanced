@@ -36,6 +36,7 @@ Image Occlusion editor dialog
 
 import html
 import os
+import re
 import uuid
 from typing import List, Optional
 
@@ -219,6 +220,39 @@ def _isChromatic(color) -> bool:
     return color.isValid() and color.alpha() > 0 and color.saturation() >= 30
 
 
+# Tags that may show up in a note field. A "<" that does not introduce one of
+# these is a literal less-than sign the note happens to contain; escaping it
+# keeps Qt's HTML parser from swallowing the rest of the entry.
+_KNOWN_TAGS = (
+    "a b i u s em strong span div p br img ul ol li dl dt dd table thead tbody"
+    " tfoot tr td th h1 h2 h3 h4 h5 h6 font hr code pre blockquote sub sup"
+    " strike big small center tt anki-mathjax"
+).split()
+_STRAY_LT = re.compile(
+    r"<(?!!--)(?!/?(?:%s)[\s/>])" % "|".join(_KNOWN_TAGS), flags=re.IGNORECASE
+)
+# line feeds that lay the markup out rather than break a line
+_MARKUP_NEWLINE = re.compile(r">[ \t]*\n[ \t]*<")
+
+
+def repairStoredHtml(markup: str) -> str:
+    """Repair field markup that no editor produced.
+
+    Notes written by an importer or a script can hold the line breaks of the
+    original text rather than markup for them. An HTML renderer collapses
+    those into spaces, which is what leaves such a note reading as one long
+    run-on paragraph - both on the card and in this editor. A bare "<" is
+    treated the same way: kept as text instead of eating the rest of the
+    field. Markup that is already well formed is returned unchanged.
+    """
+    if not markup:
+        return markup
+    repaired = markup.replace("\r\n", "\n").replace("\r", "\n")
+    repaired = _STRAY_LT.sub("&lt;", repaired)
+    repaired = _MARKUP_NEWLINE.sub("><", repaired)
+    return repaired.replace("\n", "<br />")
+
+
 class IOFieldEdit(QTextEdit):
     """Rich text field entry: formatting, plus pasted and dropped images.
 
@@ -278,7 +312,10 @@ class IOFieldEdit(QTextEdit):
 
     def setFieldHtml(self, text: str) -> None:
         """Load a field's stored HTML, remembering it for preservation."""
-        self._original = text or ""
+        # Repaired before it is remembered, so that a note whose line breaks
+        # were never turned into markup is written back the way it reads here
+        # rather than kept as the run-on paragraph it was.
+        self._original = repairStoredHtml(text or "")
         self.setHtml(self._original)
         self._fitImagesForDisplay()
         self.document().setModified(False)
@@ -544,9 +581,16 @@ class IOFieldEdit(QTextEdit):
         cursor.beginEditBlock()
         block = source.begin()
         first_block = True
+        previous_bottom_margin = 0.0
         while block.isValid():
+            block_format = block.blockFormat()
             if not first_block:
                 cursor.insertBlock()
+                # Paragraphs are set apart by a blank line on the page; a
+                # plain line break would quietly run them together here.
+                if previous_bottom_margin > 0 or block_format.topMargin() > 0:
+                    cursor.insertBlock()
+            previous_bottom_margin = block_format.bottomMargin()
             first_block = False
             it = block.begin()
             while not it.atEnd():

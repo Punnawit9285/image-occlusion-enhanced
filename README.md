@@ -42,17 +42,20 @@
 
 ### Installation
 
+#### From this repository's releases <!-- omit in toc -->
+
+This version carries a reworked editor that is not on AnkiWeb: formatting and images in the *Fields* tab, a light/dark theme that follows Anki's, multi-line text labels, and fixes for current Anki releases. It is tested on Anki 26.05 and 26.09.
+
+1. Download `image-occlusion-enhanced-<version>.ankiaddon` from the [latest release](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/latest) (listed under *Assets*).
+2. In Anki's main window, open *Tools* → *Add-ons*.
+3. Drag the `.ankiaddon` file onto the add-ons list, or click *Install from file…* and choose it.
+4. Restart Anki.
+
+Already using Image Occlusion Enhanced from AnkiWeb? There is no need to remove it first: installing this package switches the AnkiWeb version off for you. Your image occlusion notes, the note type and your settings are kept, because they live in your collection rather than in the add-on. To go back, enable the AnkiWeb version again under *Tools* → *Add-ons* and disable this one.
+
 #### AnkiWeb <!-- omit in toc -->
 
-The easiest way to install Image Occlusion Enhanced is through [AnkiWeb](https://ankiweb.net/shared/info/1374772155).
-
-#### Manual installation <!-- omit in toc -->
-
-1. Make sure you have the [latest version](https://apps.ankiweb.net/#download) of Anki 2.1 installed. Earlier releases (e.g. found in various Linux distros) do not support `.ankiaddon` packages.
-2. Download the latest `.ankiaddon` package from the [releases tab](https://github.com/glutanimate/image-occlusion-enhanced/releases) (you might need to click on *Assets* below the description to reveal the download links)
-3. From Anki's main window, head to *Tools* → *Add-ons*
-4. Drag-and-drop the `.ankiaddon` package onto the add-ons list
-5. Restart Anki
+The original v1.4.0 release from 2022 is still available on [AnkiWeb](https://ankiweb.net/shared/info/1374772155). It does not include the changes in this repository.
 
 ### Documentation
 
@@ -60,13 +63,17 @@ The installation and use of this add-on is detailed in the [Wiki](https://github
 
 ### Building
 
-With [Anki add-on builder](https://github.com/glutanimate/anki-addon-builder/) installed:
+To build the `.ankiaddon` package yourself (needs only Python 3.9 or newer):
 
-    git clone https://github.com/glutanimate/image-occlusion-enhanced.git
+    git clone https://github.com/Punnawit9285/image-occlusion-enhanced.git
     cd image-occlusion-enhanced
-    aab build
+    python3 tools/build_ankiaddon.py
 
-For more information on the build process please refer to [`aab`'s documentation](https://github.com/glutanimate/anki-addon-builder/#usage).
+The package is written to `build/`.
+
+For development, link the source folder into Anki's add-ons folder instead, so that a restart of Anki picks up your changes. *Tools* → *Add-ons* → *View Files* opens that folder; on macOS it is `~/Library/Application Support/Anki2/addons21`:
+
+    ln -s "$PWD/src/image_occlusion_enhanced" "$HOME/Library/Application Support/Anki2/addons21/image_occlusion_enhanced_2"
 
 ### Contributing
 

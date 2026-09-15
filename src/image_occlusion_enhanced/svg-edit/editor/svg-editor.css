@@ -473,9 +473,13 @@ div.palette_item:first-child {
 	left: 108px;
 	right: 2px;
 	top: 2px;
-	height: 40px;
+	/* end exactly where the canvas starts (40px), border included: the
+	   theme draws a divider along the bottom that used to run 3px into the
+	   canvas and cut a notch into its frame */
+	box-sizing: border-box;
+	height: 38px;
 	border-bottom: none;
-	overflow: auto;
+	overflow: hidden;
 }
 
 #tools_top .tool_sep {
@@ -485,11 +489,12 @@ div.palette_item:first-child {
 #tools_left {
 	position: absolute;
 	border-right: none;
-	width: 32px;
+	box-sizing: border-box;
+	width: 40px;
 	top: 40px;
-	left: 1px;
-	margin-top: -2px;
-	padding-left: 2px;
+	left: 0;
+	margin-top: 0;
+	padding-left: 0;
 	background: #D0D0D0; /* Needed so flyout icons don't appear on the left */
 	z-index: 4;
 }
@@ -594,6 +599,9 @@ input[type=text] {
  #tools_left .tool_button_current {
 	position: relative;
 	z-index: 11;
+	/* centre each button in the sidebar, whatever its size */
+	margin-left: auto;
+	margin-right: auto;
 }
 
  .flyout_arrow_horiz {
@@ -979,25 +987,6 @@ span.zoom_tool {
 		margin-top: 2px;
 		height: 30px;
 	}
-	#tools_top {
-		height: 71px;
-	}
-	#workarea, #sidepanels {
-		top: 70px;
-	}
-	#rulers #ruler_corner,
-	#rulers #ruler_x, #tools_left {
-		top: 71px;
-	}
-
-	#rulers #ruler_y {
-		top: 86px;
-	}
-
-	#cur_context_panel {
-		top: 87px;
-	}
-
 	#selected_panel {
 		clear: right;
 	}

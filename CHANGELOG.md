@@ -10,7 +10,9 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 
 :heart: My heartfelt thanks goes out to everyone who has supported this add-on through their tips, contributions, or any other means (you know who you are!). All of this would not have been possible without you. Thank you for being awesome!
 
-## [Unreleased]
+## [2.0.0] - 2026-09-15
+
+### [Download](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/tag/v2.0.0)
 
 ### Added
 
@@ -18,6 +20,7 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 - The text tool now supports **multiple lines**. Typing still happens directly on the image, exactly as before - press Enter for a line break and Escape to finish. Lines are stored as SVG `<tspan>` elements, and single-line labels are still written exactly as before.
 - Fields in the *Fields* tab support **formatting**: bold, italic, underline, strikethrough, superscript, subscript, text colour and highlight, from a toolbar above the fields or with Cmd/Ctrl+B, I and U. **Images** can be inserted from a file, pasted or dragged in; they are saved to your collection's media folder and shown inline while editing instead of appearing as a file path. Pasted rich text keeps its basic formatting and links, but not fonts or sizes.
 - The *Fields* tab now scrolls, so note types with many fields remain usable in a small window.
+- Releases on GitHub now include an installable `.ankiaddon` package, built with `tools/build_ankiaddon.py`. It installs as its own add-on and switches off the AnkiWeb version, which Anki would otherwise offer to "update" back to the 2022 release. Existing notes, the note type and your settings carry over, since they are stored in the collection rather than in the add-on.
 
 ### Fixed
 
@@ -28,6 +31,9 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 - Removed the add-on's "Open Image" entry from the editor context menu on Anki 24.11 and later, where Anki provides its own and ours showed up as a duplicate (#318).
 - Fixed `conf key imgocc should be fetched with col.get_config()` warnings being printed on every launch; the synced configuration now uses the supported API (#147, #261).
 - Fixed the hidden ID field staying visible in the note editor on current Anki versions, caused by reading an editor field before it had finished initialising.
+- Fixed text pasted into a field losing its paragraphs, and notes whose fields hold plain line breaks - as those written by an importer or a script often do - reading as a single run-on paragraph. An HTML renderer collapses such line breaks into spaces; they are now turned into markup when the note is loaded, and pasted paragraphs keep the blank line between them.
+- Fixed a notch cut into the top edge of the mask editor's canvas. The top bar's box, including the divider the theme draws along its bottom, ran 3px down over the canvas frame from the end of the main menu button onwards. Below 1250px window width the top bar also reserved an empty second row for panels this add-on never shows, leaving a blank strip under the tool buttons; that strip is gone as well, so the canvas is around 30px taller in smaller windows.
+- Fixed the tool buttons in the mask editor's left sidebar sitting off-centre, overhanging the sidebar's right edge by a pixel.
 
 ### Compatibility
 
@@ -36,7 +42,7 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 - New cards are added to the chosen deck by passing it to Anki directly, instead of temporarily changing the note type's default deck.
 - The patch that keeps the reviewer's scroll position when showing the answer is now optional: if a future Anki renames the private method it hooks into, the add-on still loads and only that nicety is lost. Previously the error would have stopped the add-on from loading at all.
 - Reduced reliance on private web view internals in the mask editor (#316): if Anki stops exposing the queue the editor borrows, it falls back to its own.
-- Tested on Anki 26.05.
+- Tested on Anki 26.05 and 26.09.
 
 ## [1.4.0] - 2022-04-09
 
@@ -505,7 +511,7 @@ A tremendous version jump, I know, but this is the most comprehensive update to 
 - Still needs a lot of testing!
 
 
-[Unreleased]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.4.0...HEAD
+[2.0.0]: https://github.com/Punnawit9285/image-occlusion-enhanced/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.3.0-alpha6...v1.4.0
 [1.3.0-alpha6]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.3.0-alpha5...v1.3.0-alpha6
 [1.3.0-alpha5]: https://github.com/Glutanimate/image-occlusion-enhanced/compare/v1.3.0-alpha4...v1.3.0-alpha5
