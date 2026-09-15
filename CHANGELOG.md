@@ -16,7 +16,7 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 
 - Reworked the look of the editor. The Qt window and the embedded mask editor now share one modern light/dark theme that follows Anki's own, including live updates when you switch themes while the editor is open. The mask editor's 2009-era icon set has been replaced with a monochrome one that recolours with the theme.
 - The text tool now supports **multiple lines**. Typing still happens directly on the image, exactly as before - press Enter for a line break and Escape to finish. Lines are stored as SVG `<tspan>` elements, and single-line labels are still written exactly as before.
-- Fields in the *Fields* tab accept **pasted and dropped images**, which are saved to your collection's media folder and shown inline while editing instead of appearing as a file path.
+- Fields in the *Fields* tab support **formatting**: bold, italic, underline, strikethrough, superscript, subscript, text colour and highlight, from a toolbar above the fields or with Cmd/Ctrl+B, I and U. **Images** can be inserted from a file, pasted or dragged in; they are saved to your collection's media folder and shown inline while editing instead of appearing as a file path. Pasted rich text keeps its basic formatting and links, but not fonts or sizes.
 - The *Fields* tab now scrolls, so note types with many fields remain usable in a small window.
 
 ### Fixed

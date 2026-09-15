@@ -219,6 +219,28 @@ def refresh_main_window() -> None:
 # Widgets --------------------------------------------------------------------
 
 
+def note_type_of(note):
+    """A note's note type (Note.model() was renamed note_type())."""
+    return _call_first(note, ("note_type", "model"))
+
+
+def deck_chooser_of(window):
+    """The deck chooser of an Add Cards window.
+
+    AddCards.deckChooser was renamed deck_chooser; the old name still works but
+    logs a deprecation warning on every access.
+    """
+    chooser = getattr(window, "deck_chooser", None)
+    if chooser is None:
+        chooser = getattr(window, "deckChooser", None)
+    return chooser
+
+
+def add_history(window, note) -> None:
+    """Record a note in the Add Cards window's history dropdown."""
+    _call_first(window, ("add_history", "addHistory"), note)
+
+
 def selected_deck_id(chooser) -> int:
     if hasattr(chooser, "selected_deck_id"):
         return chooser.selected_deck_id

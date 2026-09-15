@@ -2935,7 +2935,9 @@ var getMouseTarget = this.getMouseTarget = function(evt) {
 						(parseFloat(tr_elem.getAttribute('x')) || 0) + (tr.anchorX - edge_x));
 					tr_elem.setAttribute('y',
 						(parseFloat(tr_elem.getAttribute('y')) || 0) + (tr.anchorY - edge_y));
-					svgedit.utilities.syncTextLineAnchors(tr_elem);
+					// Lines follow through the x observer; apply it now so the
+					// selector below is sized around where they actually are.
+					canvas.flushTextLineShifts();
 
 					selectorManager.requestSelector(tr_elem).resize();
 					call("transition", selectedElements);
@@ -3648,6 +3650,100 @@ var preventClickDefault = function(img) {
 
 // Group: Text edit functions
 // Functions relating to editing text elements
+// --- Image Occlusion Enhanced patch ------------------------------------------
+// Keep the lines of a multi-line label with their <text> element.
+//
+// Each line is a <tspan> carrying its own absolute x, which is what re-centres
+// every line under text-anchor="middle". svg-edit knows nothing about those
+// lines: moving, nudging, aligning or undoing a move rewrites text@x and leaves
+// the lines where they were. The label then visibly snapped back on release
+// while its selection box travelled on alone.
+//
+// Watching the attribute catches every one of those paths. Lines are shifted
+// by the change in x rather than set to the new value, so any existing offset
+// between a label and its lines - such as labels saved while this was broken -
+// is preserved and the label moves as a unit instead of jumping.
+var textLineObserver = null;
+
+function shiftTextLines(records) {
+	if (!records || !records.length) return;
+	var elems = [], starts = [];
+	for (var i = 0; i < records.length; i++) {
+		var rec = records[i];
+		var el = rec.target;
+		if (!el || el.tagName !== 'text' || rec.attributeName !== 'x') continue;
+		// Several records for one element in a batch: the net change runs from
+		// the first recorded old value to the value it has now.
+		var idx = elems.indexOf(el);
+		if (idx === -1) {
+			elems.push(el);
+			starts.push(rec.oldValue);
+		} else if (starts[idx] === null) {
+			// The element only just received its x, so this later record's old
+			// value is where it was first placed.
+			starts[idx] = rec.oldValue;
+		}
+	}
+	var touchedSelection = false;
+	for (var j = 0; j < elems.length; j++) {
+		var elem = elems[j];
+		// A null start means x was added rather than changed - the element is
+		// being created - so nothing moved and there is nothing to shift.
+		// Reading it as 0 used to push a new label's lines out by its whole x.
+		if (starts[j] === null) continue;
+		var before = parseFloat(starts[j]), after = parseFloat(elem.getAttribute('x'));
+		if (isNaN(before) || isNaN(after)) continue;
+		var delta = after - before;
+		if (!delta) continue;
+		var lines = elem.getElementsByTagNameNS(svgns, 'tspan');
+		for (var k = 0; k < lines.length; k++) {
+			var lx = parseFloat(lines[k].getAttribute('x'));
+			if (isNaN(lx)) continue;
+			lines[k].setAttribute('x', lx + delta);
+		}
+		if (selectedElements.indexOf(elem) !== -1) touchedSelection = true;
+	}
+	// The selector was sized before the lines moved; size it again so the box
+	// sits on the text rather than where the text used to be.
+	if (touchedSelection) {
+		for (var s = 0; s < selectedElements.length; s++) {
+			if (selectedElements[s]) {
+				selectorManager.requestSelector(selectedElements[s]).resize();
+			}
+		}
+	}
+}
+
+if (typeof MutationObserver !== 'undefined') {
+	textLineObserver = new MutationObserver(shiftTextLines);
+	textLineObserver.observe(svgroot, {
+		subtree: true,
+		attributes: true,
+		attributeOldValue: true,
+		attributeFilter: ['x']
+	});
+}
+
+// Apply pending line shifts now instead of at the end of the current task,
+// for code that reads line positions straight after changing x.
+canvas.flushTextLineShifts = function() {
+	if (textLineObserver) shiftTextLines(textLineObserver.takeRecords());
+};
+
+// Apply any queued shifts before a label's lines are rebuilt. A move that
+// happened earlier in the same task is otherwise still pending when the new
+// lines appear, and would then be applied to lines that did not exist when it
+// happened. Every writer - typing, undo/redo, paste - goes through this one
+// helper, so wrapping it covers them all.
+(function () {
+	var rebuildLines = svgedit.utilities.setTextContentLines;
+	svgedit.utilities.setTextContentLines = function (elem, value) {
+		canvas.flushTextLineShifts();
+		return rebuildLines(elem, value);
+	};
+})();
+// --- end Image Occlusion Enhanced patch --------------------------------------
+
 var textActions = canvas.textActions = function() {
 	var curtext;
 	var textinput;

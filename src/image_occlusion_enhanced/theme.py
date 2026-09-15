@@ -293,6 +293,63 @@ QScrollBar::add-page, QScrollBar::sub-page {{
     background: transparent;
 }}
 
+/* --- Field formatting bar --------------------------------------------- */
+QWidget#ioFormatBar {{
+    background: {surface};
+    border-bottom: 1px solid {border};
+}}
+QWidget#ioFormatBar QToolButton {{
+    background: transparent;
+    color: {text};
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 3px 7px;
+    min-width: 18px;
+    min-height: 20px;
+}}
+QWidget#ioFormatBar QToolButton:hover {{
+    background: {surface_sunken};
+    border-color: {border};
+}}
+QWidget#ioFormatBar QToolButton:checked {{
+    background: {accent};
+    color: {accent_text};
+    border-color: {accent};
+}}
+QWidget#ioFormatBar QToolButton[popupMode="1"] {{
+    padding-right: 15px;
+}}
+QWidget#ioFormatBar QToolButton::menu-button {{
+    border: none;
+    width: 13px;
+}}
+QFrame[ioVSeparator="true"] {{
+    background: {border};
+    border: none;
+    min-width: 1px;
+    max-width: 1px;
+    margin: 4px 6px;
+}}
+QMenu {{
+    background: {surface_raised};
+    color: {text};
+    border: 1px solid {border};
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 5px 18px 5px 8px;
+    border-radius: 4px;
+}}
+QMenu::item:selected {{
+    background: {accent};
+    color: {accent_text};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {border};
+    margin: 4px 6px;
+}}
+
 /* --- Misc --------------------------------------------------------------- */
 QFrame[ioSeparator="true"] {{
     background: {border};

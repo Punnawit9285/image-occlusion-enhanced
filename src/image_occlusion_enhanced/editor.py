@@ -43,11 +43,15 @@ from anki.config import Config
 from aqt import deckchooser, mw, tagedit, webview
 from aqt.qt import (
     QApplication,
+    QBrush,
     QBuffer,
-    QByteArray,
+    QColor,
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
+    QFont,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -56,15 +60,23 @@ from aqt.qt import (
     QIODevice,
     QKeySequence,
     QLabel,
+    QMenu,
     QMovie,
+    QPainter,
+    QPixmap,
     QPushButton,
     QScrollArea,
     QShortcut,
     QSize,
     Qt,
     QTabWidget,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
     QTextEdit,
+    QTextFormat,
     QTextImageFormat,
+    QToolButton,
     QUrl,
     QVBoxLayout,
     QWidget,
@@ -174,17 +186,54 @@ class ImgOccWebView(webview.AnkiWebView):
         self.escape_pressed.emit()
 
 
-class IOFieldEdit(QTextEdit):
-    """Field entry widget that accepts pasted and dropped images.
+def _enumValue(value):
+    """Plain int for a Qt enum member, across PyQt enum flavours."""
+    return getattr(value, "value", value)
 
-    Anki stores field content as HTML, so images live in the collection's media
-    folder and are referenced as <img src="filename">. Using a rich text widget
-    means they show up as pictures while editing instead of as a bare file path,
-    which is what users kept running into (issues #276, #310).
+
+_FOREGROUND = _enumValue(QTextFormat.Property.ForegroundBrush)
+_BACKGROUND = _enumValue(QTextFormat.Property.BackgroundBrush)
+# Marks an image whose size was reduced for display only, so the serialiser
+# knows not to write that size into the note.
+_DISPLAY_SCALED = _enumValue(QTextFormat.Property.UserProperty) + 1
+
+_SUPERSCRIPT = QTextCharFormat.VerticalAlignment.AlignSuperScript
+_SUBSCRIPT = QTextCharFormat.VerticalAlignment.AlignSubScript
+_NORMAL_ALIGNMENT = QTextCharFormat.VerticalAlignment.AlignNormal
+
+# Images accepted into fields. Broader than the formats usable as an occlusion
+# background, since these only have to display on the card.
+FIELD_IMAGE_EXTENSIONS = {
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "tif", "tiff",
+}
+
+
+def _isChromatic(color) -> bool:
+    """Whether a pasted colour is worth keeping.
+
+    Web pages and word processors set black text and white backgrounds
+    explicitly, and keeping those would litter the field with spans that force
+    black text on the card. Only colours with actual hue survive a paste; the
+    toolbar can still apply any colour deliberately.
+    """
+    return color.isValid() and color.alpha() > 0 and color.saturation() >= 30
+
+
+class IOFieldEdit(QTextEdit):
+    """Rich text field entry: formatting, plus pasted and dropped images.
+
+    Anki stores field content as HTML. Formatting is written back as a small,
+    predictable set of tags (b, i, u, s, sup, sub, a, and spans for colours),
+    and images live in the collection's media folder, referenced as
+    <img src="filename"> and shown inline while editing (issues #276, #310).
 
     The document's base URL is the media folder, so a bare filename in an
     img src resolves both when loading a note and when serialising back out.
     """
+
+    # Emitted with the field itself, so one toolbar can serve every field.
+    focused = pyqtSignal(object)
+    formatChanged = pyqtSignal(object)
 
     # Images wider than this are scaled down for display only; the stored
     # markup is untouched, so cards still get the full-resolution file.
@@ -192,10 +241,15 @@ class IOFieldEdit(QTextEdit):
 
     def __init__(self, parent=None):
         QTextEdit.__init__(self, parent)
+        # Pastes are cleaned by insertFromMimeData() rather than accepted
+        # wholesale, so Qt's own rich text import stays off.
         self.setAcceptRichText(False)
         self.setTabChangesFocus(True)
         self.setAcceptDrops(True)
         self._original = ""
+        self.currentCharFormatChanged.connect(
+            lambda _fmt: self.formatChanged.emit(self)
+        )
         try:
             self.document().setBaseUrl(
                 QUrl.fromLocalFile(os.path.join(mw.col.media.dir(), ""))
@@ -204,16 +258,33 @@ class IOFieldEdit(QTextEdit):
             # No collection open yet; images simply will not preview.
             pass
 
+    def focusInEvent(self, event) -> None:
+        QTextEdit.focusInEvent(self, event)
+        self.focused.emit(self)
+
+    def keyPressEvent(self, event) -> None:
+        for key, action in (
+            (QKeySequence.StandardKey.Bold, self.toggleBold),
+            (QKeySequence.StandardKey.Italic, self.toggleItalic),
+            (QKeySequence.StandardKey.Underline, self.toggleUnderline),
+        ):
+            if event.matches(key):
+                action()
+                event.accept()
+                return
+        QTextEdit.keyPressEvent(self, event)
+
     # -- content round-tripping
 
     def setFieldHtml(self, text: str) -> None:
         """Load a field's stored HTML, remembering it for preservation."""
         self._original = text or ""
         self.setHtml(self._original)
+        self._fitImagesForDisplay()
         self.document().setModified(False)
 
     def fieldHtml(self) -> str:
-        """Serialise back to the minimal HTML the note type expects.
+        """Serialise back to the HTML the note type expects.
 
         If nothing was touched the stored value is returned verbatim. Field
         content can contain arbitrary markup produced by Anki's own editor -
@@ -245,33 +316,201 @@ class IOFieldEdit(QTextEdit):
     def _serializeFragment(self, fragment) -> str:
         fmt = fragment.charFormat()
         if fmt.isImageFormat():
-            name = fmt.toImageFormat().name()
-            if not name:
-                return ""
-            return path_to_img_element(name)
+            return self._serializeImage(fmt.toImageFormat())
         text = html.escape(fragment.text(), quote=False)
         if not text:
             return ""
-        if fmt.fontUnderline():
+        # Qt keeps a <br> inside a loaded paragraph, and a Shift+Enter, as a
+        # line separator character within the block rather than as a new
+        # block. Without this, editing a field that had line breaks would
+        # silently run its lines together.
+        text = text.replace(" ", "<br />").replace(" ", "<br />")
+
+        alignment = fmt.verticalAlignment()
+        if alignment == _SUPERSCRIPT:
+            text = "<sup>%s</sup>" % text
+        elif alignment == _SUBSCRIPT:
+            text = "<sub>%s</sub>" % text
+        # Qt draws links underlined and in the palette's link colour, and records
+        # both on the text itself. Writing them back would bake editor styling -
+        # a dark-mode UI colour included - into the note on every save, so a
+        # link's look is left to the card. Its target is kept below.
+        is_link = fmt.isAnchor() and bool(fmt.anchorHref())
+        if fmt.fontStrikeOut():
+            text = "<s>%s</s>" % text
+        if fmt.fontUnderline() and not is_link:
             text = "<u>%s</u>" % text
         if fmt.fontItalic():
             text = "<i>%s</i>" % text
         if fmt.fontWeight() > 500:
             text = "<b>%s</b>" % text
+
+        styles = []
+        if fmt.hasProperty(_FOREGROUND) and not is_link:
+            styles.append("color: %s" % fmt.foreground().color().name())
+        if fmt.hasProperty(_BACKGROUND):
+            styles.append("background-color: %s" % fmt.background().color().name())
+        if styles:
+            text = '<span style="%s;">%s</span>' % ("; ".join(styles), text)
+
+        if fmt.isAnchor() and fmt.anchorHref():
+            text = '<a href="%s">%s</a>' % (html.escape(fmt.anchorHref()), text)
         return text
 
-    # -- image input
+    def _serializeImage(self, image_format) -> str:
+        name = image_format.name()
+        if not name:
+            return ""
+        if image_format.boolProperty(_DISPLAY_SCALED) or image_format.width() <= 0:
+            return path_to_img_element(name)
+        # A width that came from the note itself, e.g. set in Anki's editor.
+        return '<img src="%s" width="%d" />' % (
+            os.path.split(name)[1],
+            round(image_format.width()),
+        )
+
+    def _fitImagesForDisplay(self) -> None:
+        """Shrink large images loaded from a note, for display only."""
+        try:
+            media_dir = mw.col.media.dir()
+        except Exception:
+            return
+        doc = self.document()
+        pending = []
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                if fragment.isValid() and fragment.charFormat().isImageFormat():
+                    image_format = fragment.charFormat().toImageFormat()
+                    if image_format.width() <= 0:
+                        pending.append(
+                            (fragment.position(), fragment.length(), image_format)
+                        )
+                it += 1
+            block = block.next()
+        # Applied after the walk: changing formats can split fragments, which
+        # would invalidate the iterator mid-loop.
+        for position, length, image_format in pending:
+            image = QImage(os.path.join(media_dir, image_format.name()))
+            if image.isNull() or image.width() <= self.MAX_DISPLAY_WIDTH:
+                continue
+            self._scaleForDisplay(image_format, image)
+            cursor = QTextCursor(doc)
+            cursor.setPosition(position)
+            cursor.setPosition(position + length, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setCharFormat(image_format)
+
+    def _scaleForDisplay(self, image_format, image) -> None:
+        scale = self.MAX_DISPLAY_WIDTH / float(image.width())
+        image_format.setWidth(self.MAX_DISPLAY_WIDTH)
+        image_format.setHeight(image.height() * scale)
+        image_format.setProperty(_DISPLAY_SCALED, True)
+
+    # -- formatting
+
+    def _editFormats(self, edit) -> None:
+        """Apply ``edit`` to the selected text, or to what gets typed next.
+
+        ``edit`` receives a QTextCharFormat and may change it in place or return
+        a replacement. Images inside a selection are left alone.
+        """
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            fmt = self.currentCharFormat()
+            replacement = edit(fmt)
+            self.setCurrentCharFormat(replacement if replacement is not None else fmt)
+            return
+
+        doc = self.document()
+        start, end = cursor.selectionStart(), cursor.selectionEnd()
+        ranges = []
+        block = doc.findBlock(start)
+        while block.isValid() and block.position() < end:
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                if fragment.isValid():
+                    a = max(fragment.position(), start)
+                    b = min(fragment.position() + fragment.length(), end)
+                    fmt = fragment.charFormat()
+                    if a < b and not fmt.isImageFormat():
+                        ranges.append((a, b, QTextCharFormat(fmt)))
+                it += 1
+            block = block.next()
+
+        editor = QTextCursor(doc)
+        editor.beginEditBlock()
+        for a, b, fmt in ranges:
+            replacement = edit(fmt)
+            editor.setPosition(a)
+            editor.setPosition(b, QTextCursor.MoveMode.KeepAnchor)
+            editor.setCharFormat(replacement if replacement is not None else fmt)
+        editor.endEditBlock()
+        # Re-apply the original selection so toolbar state tracks it.
+        self.setTextCursor(cursor)
+
+    def toggleBold(self) -> None:
+        on = self.currentCharFormat().fontWeight() > 500
+        self._editFormats(lambda f: f.setFontWeight(400 if on else 700))
+
+    def toggleItalic(self) -> None:
+        on = self.currentCharFormat().fontItalic()
+        self._editFormats(lambda f: f.setFontItalic(not on))
+
+    def toggleUnderline(self) -> None:
+        on = self.currentCharFormat().fontUnderline()
+        self._editFormats(lambda f: f.setFontUnderline(not on))
+
+    def toggleStrikeOut(self) -> None:
+        on = self.currentCharFormat().fontStrikeOut()
+        self._editFormats(lambda f: f.setFontStrikeOut(not on))
+
+    def toggleVerticalAlignment(self, alignment) -> None:
+        on = self.currentCharFormat().verticalAlignment() == alignment
+        self._editFormats(
+            lambda f: f.setVerticalAlignment(_NORMAL_ALIGNMENT if on else alignment)
+        )
+
+    def applyTextColor(self, color) -> None:
+        """Colour the text; None returns it to the default colour."""
+
+        def edit(fmt):
+            if color is None:
+                fmt.clearForeground()
+            else:
+                fmt.setForeground(QBrush(color))
+
+        self._editFormats(edit)
+
+    def applyHighlight(self, color) -> None:
+        """Highlight behind the text; None removes it."""
+
+        def edit(fmt):
+            if color is None:
+                fmt.clearBackground()
+            else:
+                fmt.setBackground(QBrush(color))
+
+        self._editFormats(edit)
+
+    def clearFormatting(self) -> None:
+        self._editFormats(lambda f: QTextCharFormat())
+
+    # -- pasting and dropping
 
     def canInsertFromMimeData(self, source) -> bool:
-        if source.hasImage() or self._imagePaths(source):
+        if source.hasImage() or self._imagePaths(source) or source.hasHtml():
             return True
         return QTextEdit.canInsertFromMimeData(self, source)
 
     def insertFromMimeData(self, source) -> None:
         if self._insertImages(source):
             return
-        # Deliberately plain: the serialiser above only emits a small set of
-        # tags, so arbitrary pasted markup could not be round-tripped anyway.
+        if source.hasHtml():
+            self._insertCleanHtml(source.html())
+            return
         self.insertPlainText(source.text())
 
     def dragEnterEvent(self, event) -> None:
@@ -292,6 +531,73 @@ class IOFieldEdit(QTextEdit):
             return
         QTextEdit.dropEvent(self, event)
 
+    def _insertCleanHtml(self, markup: str) -> None:
+        """Paste rich text keeping only the formatting the field can store.
+
+        Fonts and sizes from the source are dropped on purpose: they would show
+        while editing but vanish on save, since the serialiser does not write
+        them.
+        """
+        source = QTextDocument()
+        source.setHtml(markup)
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        block = source.begin()
+        first_block = True
+        while block.isValid():
+            if not first_block:
+                cursor.insertBlock()
+            first_block = False
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                if fragment.isValid() and not fragment.charFormat().isImageFormat():
+                    cursor.insertText(
+                        fragment.text(), self._cleanFormat(fragment.charFormat())
+                    )
+                it += 1
+            block = block.next()
+        cursor.endEditBlock()
+        self.setTextCursor(cursor)
+
+    @staticmethod
+    def _cleanFormat(source) -> QTextCharFormat:
+        fmt = QTextCharFormat()
+        if source.fontWeight() > 500:
+            fmt.setFontWeight(700)
+        if source.fontItalic():
+            fmt.setFontItalic(True)
+        if source.fontUnderline():
+            fmt.setFontUnderline(True)
+        if source.fontStrikeOut():
+            fmt.setFontStrikeOut(True)
+        if source.verticalAlignment() in (_SUPERSCRIPT, _SUBSCRIPT):
+            fmt.setVerticalAlignment(source.verticalAlignment())
+        foreground = source.foreground().color()
+        if source.hasProperty(_FOREGROUND) and _isChromatic(foreground):
+            fmt.setForeground(source.foreground())
+        background = source.background().color()
+        if source.hasProperty(_BACKGROUND) and _isChromatic(background):
+            fmt.setBackground(source.background())
+        if source.isAnchor() and source.anchorHref():
+            fmt.setAnchor(True)
+            fmt.setAnchorHref(source.anchorHref())
+            # Same reasoning as in _serializeFragment: keep where a pasted
+            # link points, not how the source page painted it.
+            fmt.setFontUnderline(False)
+            fmt.clearForeground()
+        return fmt
+
+    @staticmethod
+    def _visibleText(source) -> str:
+        if source.hasHtml():
+            doc = QTextDocument()
+            doc.setHtml(source.html())
+            text = doc.toPlainText()
+        else:
+            text = source.text() if source.hasText() else ""
+        return text.replace("￼", "").strip()
+
     def _imagePaths(self, source) -> List[str]:
         """Local image files carried by a drop or paste."""
         paths = []
@@ -302,30 +608,24 @@ class IOFieldEdit(QTextEdit):
                 continue
             path = url.toLocalFile()
             ext = os.path.splitext(path)[1].lower().lstrip(".")
-            if ext in SUPPORTED_EXTENSIONS and os.path.isfile(path):
+            if ext in FIELD_IMAGE_EXTENSIONS and os.path.isfile(path):
                 paths.append(path)
         return paths
 
     def _insertImages(self, source) -> bool:
-        inserted = False
-        for path in self._imagePaths(source):
-            try:
-                with open(path, "rb") as f:
-                    data = f.read()
-            except OSError as e:
-                logger.warning("could not read dropped image %s: %s", path, e)
-                continue
-            fname = self._writeMedia(os.path.basename(path), data)
-            if fname:
-                self._insertImageElement(fname)
-                inserted = True
-        if inserted:
+        paths = self._imagePaths(source)
+        if paths:
+            for path in paths:
+                self.insertImageFile(path)
             return True
 
-        if source.hasImage():
+        # Office apps put a rendered picture of copied text on the clipboard
+        # alongside the text itself. Only paste the image when there is no
+        # text, otherwise copying a sentence from Word would paste a picture.
+        if source.hasImage() and not self._visibleText(source):
+            data = source.imageData()
             # imageData() hands back a QImage on some platforms and a QPixmap
             # on others, so normalise before saving.
-            data = source.imageData()
             image = data if isinstance(data, QImage) else QImage(data)
             if not image.isNull():
                 fname = self._writeImage(image)
@@ -334,6 +634,19 @@ class IOFieldEdit(QTextEdit):
                     return True
         return False
 
+    def insertImageFile(self, path: str) -> bool:
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            logger.warning("could not read image %s: %s", path, e)
+            return False
+        fname = self._writeMedia(os.path.basename(path), data)
+        if not fname:
+            return False
+        self._insertImageElement(fname)
+        return True
+
     def _writeImage(self, image: QImage) -> Optional[str]:
         """Save a clipboard image into the media folder."""
         try:
@@ -341,7 +654,10 @@ class IOFieldEdit(QTextEdit):
         except Exception:
             as_png = False
         fmt, ext = ("PNG", "png") if as_png else ("JPG", "jpg")
-        buffer = QBuffer(QByteArray())
+        # A default-constructed QBuffer owns its storage. QBuffer(QByteArray())
+        # would instead hold a pointer to a temporary that Python frees straight
+        # away, leaving the image to be written into released memory.
+        buffer = QBuffer()
         buffer.open(QIODevice.OpenModeFlag.ReadWrite)
         if not image.save(buffer, fmt):
             buffer.close()
@@ -368,11 +684,261 @@ class IOFieldEdit(QTextEdit):
         # this is also what gets written back into the field.
         fmt.setName(fname)
         if not image.isNull() and image.width() > self.MAX_DISPLAY_WIDTH:
-            scale = self.MAX_DISPLAY_WIDTH / float(image.width())
-            fmt.setWidth(self.MAX_DISPLAY_WIDTH)
-            fmt.setHeight(image.height() * scale)
+            self._scaleForDisplay(fmt, image)
         self.textCursor().insertImage(fmt)
         self.document().setModified(True)
+
+
+class FormattingToolbar(QWidget):
+    """Formatting controls for the Fields tab.
+
+    One bar serves every field: like a word processor's toolbar it acts on
+    whichever field last had focus, and mirrors that field's formatting at the
+    cursor.
+    """
+
+    TEXT_COLORS = [
+        (_("Default"), None),
+        (_("Red"), "#e53935"),
+        (_("Orange"), "#f57c00"),
+        (_("Green"), "#2e7d32"),
+        (_("Blue"), "#1e88e5"),
+        (_("Purple"), "#8e24aa"),
+        (_("Gray"), "#757575"),
+    ]
+    HIGHLIGHTS = [
+        (_("None"), None),
+        (_("Yellow"), "#fff176"),
+        (_("Green"), "#a5d6a7"),
+        (_("Blue"), "#90caf9"),
+        (_("Pink"), "#f48fb1"),
+        (_("Orange"), "#ffcc80"),
+    ]
+
+    def __init__(self, field_getter, parent=None):
+        QWidget.__init__(self, parent)
+        self.setObjectName("ioFormatBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._field_getter = field_getter
+        self._text_color = QColor(self.TEXT_COLORS[1][1])
+        self._highlight = QColor(self.HIGHLIGHTS[1][1])
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 7, 14, 7)
+        layout.setSpacing(3)
+
+        self.bold_btn = self._toggleButton(
+            "B", _("Bold"), QKeySequence.StandardKey.Bold,
+            lambda f: f.toggleBold(), lambda font: font.setBold(True),
+        )
+        self.italic_btn = self._toggleButton(
+            "I", _("Italic"), QKeySequence.StandardKey.Italic,
+            lambda f: f.toggleItalic(), lambda font: font.setItalic(True),
+        )
+        self.underline_btn = self._toggleButton(
+            "U", _("Underline"), QKeySequence.StandardKey.Underline,
+            lambda f: f.toggleUnderline(), lambda font: font.setUnderline(True),
+        )
+        self.strike_btn = self._toggleButton(
+            "S", _("Strikethrough"), None,
+            lambda f: f.toggleStrikeOut(), lambda font: font.setStrikeOut(True),
+        )
+        self.super_btn = self._toggleButton(
+            "x²", _("Superscript"), None,
+            lambda f: f.toggleVerticalAlignment(_SUPERSCRIPT), None,
+        )
+        self.sub_btn = self._toggleButton(
+            "x₂", _("Subscript"), None,
+            lambda f: f.toggleVerticalAlignment(_SUBSCRIPT), None,
+        )
+        self.color_btn = self._colorButton(
+            _("Text colour"), self.TEXT_COLORS, "_text_color",
+            lambda f, c: f.applyTextColor(c), highlight=False,
+        )
+        self.highlight_btn = self._colorButton(
+            _("Highlight"), self.HIGHLIGHTS, "_highlight",
+            lambda f, c: f.applyHighlight(c), highlight=True,
+        )
+        self.clear_btn = self._plainButton(
+            _("Clear"), _("Remove formatting from the selection"),
+            lambda f: f.clearFormatting(),
+        )
+        self.image_btn = self._plainButton(
+            _("Image…"),
+            _("Insert an image. You can also paste or drag one into a field."),
+            self._insertImage,
+        )
+
+        for widget in (
+            self.bold_btn, self.italic_btn, self.underline_btn, self.strike_btn
+        ):
+            layout.addWidget(widget)
+        layout.addWidget(self._separator())
+        layout.addWidget(self.super_btn)
+        layout.addWidget(self.sub_btn)
+        layout.addWidget(self._separator())
+        layout.addWidget(self.color_btn)
+        layout.addWidget(self.highlight_btn)
+        layout.addWidget(self._separator())
+        layout.addWidget(self.clear_btn)
+        layout.addWidget(self.image_btn)
+        layout.addStretch(1)
+        self.refreshIcons()
+
+    # -- construction helpers
+
+    def _basicButton(self) -> QToolButton:
+        button = QToolButton(self)
+        # Never take focus: the field has to keep its cursor and selection.
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setAutoRaise(True)
+        return button
+
+    def _toggleButton(self, text, name, shortcut, action, style_font):
+        button = self._basicButton()
+        button.setText(text)
+        button.setCheckable(True)
+        if style_font is not None:
+            font = QFont(button.font())
+            style_font(font)
+            button.setFont(font)
+        if shortcut is not None:
+            keys = QKeySequence(shortcut).toString(
+                QKeySequence.SequenceFormat.NativeText
+            )
+            name = "%s (%s)" % (name, keys)
+        button.setToolTip(name)
+        button.clicked.connect(lambda _checked=False: self._run(action))
+        return button
+
+    def _plainButton(self, text, tip, action):
+        button = self._basicButton()
+        button.setText(text)
+        button.setToolTip(tip)
+        button.clicked.connect(lambda _checked=False: self._run(action))
+        return button
+
+    def _colorButton(self, tip, presets, attr, apply, highlight):
+        button = self._basicButton()
+        button.setToolTip(tip)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        button.setIconSize(QSize(20, 20))
+        button.setProperty("ioHighlight", highlight)
+        menu = QMenu(button)
+        for label, value in presets:
+            color = QColor(value) if value else None
+            act = menu.addAction(self._swatchIcon(color), label)
+            act.triggered.connect(
+                lambda _checked=False, c=color: self._choose(c, attr, apply)
+            )
+        menu.addSeparator()
+        custom = menu.addAction(_("Custom…"))
+        custom.triggered.connect(
+            lambda _checked=False: self._chooseCustom(attr, apply, tip)
+        )
+        button.setMenu(menu)
+        # Clicking the button itself reapplies the last colour used.
+        button.clicked.connect(
+            lambda _checked=False: self._run(lambda f: apply(f, getattr(self, attr)))
+        )
+        return button
+
+    def _separator(self) -> QFrame:
+        line = QFrame(self)
+        line.setProperty("ioVSeparator", True)
+        line.setFrameShape(QFrame.Shape.VLine)
+        return line
+
+    # -- behaviour
+
+    def _run(self, action) -> None:
+        field = self._field_getter()
+        if field is None:
+            return
+        action(field)
+        field.setFocus()
+        self.syncState(field)
+
+    def _choose(self, color, attr, apply) -> None:
+        if color is not None:
+            setattr(self, attr, color)
+            self.refreshIcons()
+        self._run(lambda f: apply(f, color))
+
+    def _chooseCustom(self, attr, apply, title) -> None:
+        color = QColorDialog.getColor(getattr(self, attr), self.window(), title)
+        if color.isValid():
+            self._choose(color, attr, apply)
+
+    def _insertImage(self, field) -> None:
+        patterns = " ".join("*." + ext for ext in sorted(FIELD_IMAGE_EXTENSIONS))
+        path, _filter = QFileDialog.getOpenFileName(
+            self.window(),
+            _("Insert Image"),
+            "",
+            _("Images ({patterns})").format(patterns=patterns),
+        )
+        if path:
+            field.insertImageFile(path)
+
+    def syncState(self, field) -> None:
+        if field is None:
+            return
+        fmt = field.currentCharFormat()
+        self.bold_btn.setChecked(fmt.fontWeight() > 500)
+        self.italic_btn.setChecked(fmt.fontItalic())
+        self.underline_btn.setChecked(fmt.fontUnderline())
+        self.strike_btn.setChecked(fmt.fontStrikeOut())
+        self.super_btn.setChecked(fmt.verticalAlignment() == _SUPERSCRIPT)
+        self.sub_btn.setChecked(fmt.verticalAlignment() == _SUBSCRIPT)
+
+    # -- icons
+
+    def refreshIcons(self) -> None:
+        self.color_btn.setIcon(self._colorIcon(self._text_color, highlight=False))
+        self.highlight_btn.setIcon(self._colorIcon(self._highlight, highlight=True))
+
+    @staticmethod
+    def _canvas():
+        pixmap = QPixmap(40, 40)
+        pixmap.setDevicePixelRatio(2.0)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        return pixmap, painter
+
+    def _colorIcon(self, color, highlight):
+        pixmap, painter = self._canvas()
+        font = QFont()
+        font.setBold(True)
+        font.setPixelSize(12)
+        painter.setFont(font)
+        center = _enumValue(Qt.AlignmentFlag.AlignCenter)
+        if highlight:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(1, 3, 18, 14, 3, 3)
+            painter.setPen(QColor("#1f2329"))
+            painter.drawText(0, 0, 20, 20, center, "ab")
+        else:
+            painter.setPen(QColor("#e5e7ea") if isNightMode() else QColor("#1f2329"))
+            painter.drawText(0, 0, 20, 15, center, "A")
+            painter.fillRect(3, 15, 14, 3, color)
+        painter.end()
+        return QIcon(pixmap)
+
+    def _swatchIcon(self, color):
+        pixmap, painter = self._canvas()
+        if color is None:
+            painter.setPen(QColor("#9aa0a8"))
+            painter.drawRoundedRect(3, 3, 14, 14, 3, 3)
+            painter.drawLine(5, 15, 15, 5)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(3, 3, 14, 14, 3, 3)
+        painter.end()
+        return QIcon(pixmap)
 
 
 class ImgOccEdit(QDialog):
@@ -480,11 +1046,34 @@ class ImgOccEdit(QDialog):
     def applyTheme(self):
         night = isNightMode()
         self.setStyleSheet(qtStylesheet(night))
+        bar = getattr(self, "format_bar", None)
+        if bar is not None:
+            bar.refreshIcons()
         if self.svg_edit and not sip.isdeleted(self.svg_edit):
             self.svg_edit.eval(
                 "document.documentElement.dataset.ioTheme = '%s';"
                 % ("dark" if night else "light")
             )
+
+    # Field formatting
+
+    def _activeField(self):
+        """The field the formatting toolbar acts on."""
+        field = getattr(self, "_active_field", None)
+        if field is not None and not sip.isdeleted(field):
+            return field
+        order = getattr(self, "_field_order", None)
+        field = self.tedit.get(order[0]) if order else None
+        self._active_field = field
+        return field
+
+    def _onFieldFocused(self, field):
+        self._active_field = field
+        self.format_bar.syncState(field)
+
+    def _onFieldFormatChanged(self, field):
+        if field is getattr(self, "_active_field", None):
+            self.format_bar.syncState(field)
 
     def setupUi(self):
         """Set up ImgOccEdit UI"""
@@ -663,8 +1252,13 @@ class ImgOccEdit(QDialog):
         self.fields_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.fields_scroll.setWidget(fields_inner)
 
+        self._active_field = None
+        self.format_bar = FormattingToolbar(self._activeField, self)
+
         self.vbox2 = QVBoxLayout()
         self.vbox2.setContentsMargins(0, 0, 0, 0)
+        self.vbox2.setSpacing(0)
+        self.vbox2.addWidget(self.format_bar)
         self.vbox2.addWidget(self.fields_scroll)
 
         # Main Tab Widget
@@ -768,6 +1362,7 @@ class ImgOccEdit(QDialog):
         self.tedit = {}
         self.tlabel = {}
         self._field_order = []
+        self._active_field = None
 
     def setupFields(self, flds):
         """Setup dialog text edits based on note type fields"""
@@ -788,6 +1383,8 @@ class ImgOccEdit(QDialog):
             self.tedit[i["name"]] = tedit
             self.tlabel[i["name"]] = label
             self._field_order.append(i["name"])
+            tedit.focused.connect(self._onFieldFocused)
+            tedit.formatChanged.connect(self._onFieldFormatChanged)
 
         self.fields_form.addRow(self.tags_label, self.tags_edit)
         self.fields_form.addRow(self.deck_container)

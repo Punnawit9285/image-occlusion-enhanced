@@ -42,7 +42,15 @@ from aqt import mw
 from aqt.qt import QApplication, QFileDialog, Qt, QUrl, QUrlQuery
 from aqt.utils import tooltip
 
-from .compat import field_names, refresh_main_window, selected_deck_id, showWarning
+from .compat import (
+    add_history,
+    deck_chooser_of,
+    field_names,
+    note_type_of,
+    refresh_main_window,
+    selected_deck_id,
+    showWarning,
+)
 from .config import *
 from .consts import SUPPORTED_EXTENSIONS
 from .dialogs import ioCritical, ioInfo
@@ -94,7 +102,7 @@ class ImgOccAdd(object):
     def occlude(self, image_path=None):
 
         note = self.ed.note
-        isIO = note and note.model() == getOrCreateModel()
+        isIO = note and note_type_of(note) == getOrCreateModel()
 
         if not image_path:
             if self.origin == "addcards":
@@ -145,7 +153,9 @@ class ImgOccAdd(object):
         # FIXME: Not necessarily up-to-date with new tag edit contents
         self.opref["tags"] = note.tags
         if self.origin == "addcards":
-            self.opref["did"] = selected_deck_id(self.ed.parentWindow.deckChooser)
+            self.opref["did"] = selected_deck_id(
+                deck_chooser_of(self.ed.parentWindow)
+            )
         else:
             # Read the deck off the card object instead of querying the cards
             # table directly, which ties the add-on to Anki's database schema.
@@ -371,7 +381,7 @@ class ImgOccAdd(object):
         if self.origin == "addcards":
             try:
                 for note in notes:
-                    self.ed.parentWindow.addHistory(note)
+                    add_history(self.ed.parentWindow, note)
             except Exception as e:
                 print(e)
                 pass

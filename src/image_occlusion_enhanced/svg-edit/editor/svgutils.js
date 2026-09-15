@@ -339,14 +339,25 @@ svgedit.utilities.setTextContentLines = function(elem, value) {
 	if (!elem) return;
 	value = (value === null || value === undefined) ? '' : String(value);
 
+	// Lines keep the horizontal position they are already drawn at. Using
+	// text@x instead would make a label whose lines had drifted from it -
+	// saved while moving multi-line text was broken - jump when edited.
+	var existing = elem.getElementsByTagNameNS(SVGNS, 'tspan');
+	var lineX = existing.length ? existing[0].getAttribute('x') : null;
+
 	if (value.indexOf('\n') === -1) {
+		// Collapsing to one line drops the tspans, and the text is drawn at
+		// text@x from then on, so move text@x to where the lines were.
+		if (lineX !== null && lineX !== elem.getAttribute('x')) {
+			elem.setAttribute('x', lineX);
+		}
 		elem.textContent = value;
 		return;
 	}
 
 	while (elem.firstChild) elem.removeChild(elem.firstChild);
 
-	var x = elem.getAttribute('x') || 0;
+	var x = lineX !== null ? lineX : (elem.getAttribute('x') || 0);
 	var lines = value.split('\n');
 	for (var i = 0; i < lines.length; i++) {
 		var tspan = elem.ownerDocument.createElementNS(SVGNS, 'tspan');
@@ -371,18 +382,6 @@ svgedit.utilities.isTextContentBlank = function(elem) {
 	return text.replace(/[\s​]/g, '').length === 0;
 };
 
-// Function: svgedit.utilities.syncTextLineAnchors
-// Re-point every line at the element's current x. Needed after the element is
-// moved or its font-size changes, since each tspan carries its own x.
-svgedit.utilities.syncTextLineAnchors = function(elem) {
-	if (!elem) return;
-	var tspans = elem.getElementsByTagNameNS(SVGNS, 'tspan');
-	if (!tspans.length) return;
-	var x = elem.getAttribute('x') || 0;
-	for (var i = 0; i < tspans.length; i++) {
-		tspans[i].setAttribute('x', x);
-	}
-};
 // --- end Image Occlusion Enhanced patch ----------------------------------
 
 // Function: svgedit.utilities.setHref
