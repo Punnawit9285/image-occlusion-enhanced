@@ -61,7 +61,8 @@ IO_HOME = os.path.expanduser("~")
 IO_HOTKEY = "Ctrl+Shift+O"
 
 # default configurations
-# TODO: update version number before release
+# "version" is that of the settings' layout, which only changes when keys are
+# added; the add-on's own version is in _version.py
 default_conf_local = {
     "version": 1.25,
     "dir": IO_HOME,

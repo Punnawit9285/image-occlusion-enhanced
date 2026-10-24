@@ -49,6 +49,20 @@ from .tapreveal import TAP_TO_REVEAL_VERSION, with_tap_to_reveal  # noqa: F401
 
 # DEFAULT CARD TEMPLATES
 
+# Field names the templates refer to
+_template_fields = {
+    "que": IO_FLDS["qm"],
+    "ans": IO_FLDS["am"],
+    "svg": IO_FLDS["om"],
+    "src_img": IO_FLDS["im"],
+    "header": IO_FLDS["hd"],
+    "footer": IO_FLDS["ft"],
+    "remarks": IO_FLDS["rk"],
+    "sources": IO_FLDS["sc"],
+    "extraone": IO_FLDS["e1"],
+    "extratwo": IO_FLDS["e2"],
+}
+
 iocard_front = """\
 {{#%(src_img)s}}
 <div id="io-header">{{%(header)s}}</div>
@@ -73,18 +87,7 @@ if (mask === null || mask.complete) {
 }
 </script>
 {{/%(src_img)s}}
-""" % {
-    "que": IO_FLDS["qm"],
-    "ans": IO_FLDS["am"],
-    "svg": IO_FLDS["om"],
-    "src_img": IO_FLDS["im"],
-    "header": IO_FLDS["hd"],
-    "footer": IO_FLDS["ft"],
-    "remarks": IO_FLDS["rk"],
-    "sources": IO_FLDS["sc"],
-    "extraone": IO_FLDS["e1"],
-    "extratwo": IO_FLDS["e2"],
-}
+""" % _template_fields
 
 iocard_back = """\
 {{#%(src_img)s}}
@@ -144,18 +147,7 @@ if (mask === null || mask.complete) {
 }
 </script>
 {{/%(src_img)s}}
-""" % {
-    "que": IO_FLDS["qm"],
-    "ans": IO_FLDS["am"],
-    "svg": IO_FLDS["om"],
-    "src_img": IO_FLDS["im"],
-    "header": IO_FLDS["hd"],
-    "footer": IO_FLDS["ft"],
-    "remarks": IO_FLDS["rk"],
-    "sources": IO_FLDS["sc"],
-    "extraone": IO_FLDS["e1"],
-    "extratwo": IO_FLDS["e2"],
-}
+""" % _template_fields
 
 iocard_css = """\
 /* GENERAL CARD STYLE */

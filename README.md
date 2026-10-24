@@ -105,6 +105,8 @@ For development, link the source folder into Anki's add-ons folder instead, so t
 
     ln -s "$PWD/src/image_occlusion_enhanced" "$HOME/Library/Application Support/Anki2/addons21/image_occlusion_enhanced_2"
 
+[CONTRIBUTING.md](./CONTRIBUTING.md) explains how to run the tests and how releases are made.
+
 ### Contributing
 
 Contributions are welcome! Please review the [contribution guidelines](./CONTRIBUTING.md) on how to:

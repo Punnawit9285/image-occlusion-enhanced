@@ -159,7 +159,7 @@ def open_image(path):
             subprocess.Popen(["open", path])
         else:
             subprocess.Popen(["xdg-open", path])
-    except OSError as e:
+    except OSError:
         QDesktopServices.openUrl(QUrl("file://" + path))
 
 

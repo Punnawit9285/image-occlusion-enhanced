@@ -1,0 +1,4 @@
+# What the tests and CI need. The add-on itself has no dependencies.
+anki==26.9.3
+pytest==9.1.1
+ruff==0.16.10

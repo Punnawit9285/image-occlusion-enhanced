@@ -1,0 +1,46 @@
+name: Release
+
+# Push a tag such as v2.1.0 to publish that version. The tag has to match
+# src/image_occlusion_enhanced/_version.py and pyproject.toml, and
+# CHANGELOG.md needs an entry for it, which becomes the release notes.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Check the version
+        run: python tools/release.py check "$GITHUB_REF_NAME"
+
+      - name: Test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
+          python -m pip install -r requirements-dev.txt
+          ruff check src tools tests
+          python -m pytest -q
+
+      - name: Build
+        run: |
+          python tools/build_ankiaddon.py --out build
+          python tools/release.py notes "$GITHUB_REF_NAME" > build/notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/*.ankiaddon \
+            --title "Image Occlusion Enhanced ${GITHUB_REF_NAME#v}" \
+            --notes-file build/notes.md
