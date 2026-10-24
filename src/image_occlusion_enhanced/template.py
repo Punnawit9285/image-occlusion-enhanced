@@ -45,6 +45,7 @@ from .compat import (
     notetype_by_name,
     save_notetype,
 )
+from .tapreveal import TAP_TO_REVEAL_VERSION, with_tap_to_reveal  # noqa: F401
 
 # DEFAULT CARD TEMPLATES
 
@@ -248,6 +249,20 @@ iocard_css = """\
 }
 """
 
+def install_tap_to_reveal(col, io_model) -> bool:
+    """Add or update the script in both templates; whether anything changed"""
+    changed = False
+    for template in io_model["tmpls"]:
+        for key in ("qfmt", "afmt"):
+            updated = with_tap_to_reveal(template[key])
+            if updated != template[key]:
+                template[key] = updated
+                changed = True
+    if changed:
+        save_notetype(col, io_model)
+    return changed
+
+
 # INCREMENTAL UPDATES
 
 html_overlay_onload = """\
@@ -293,8 +308,8 @@ def add_io_model(col):
         add_field(col, io_model, fld)
     # Add template
     template = new_template(col, IO_CARD_NAME)
-    template["qfmt"] = iocard_front
-    template["afmt"] = iocard_back
+    template["qfmt"] = with_tap_to_reveal(iocard_front)
+    template["afmt"] = with_tap_to_reveal(iocard_back)
     io_model["css"] = iocard_css
     io_model["sortf"] = 1  # set sortfield to header
     add_template(col, io_model, template)
@@ -305,8 +320,8 @@ def reset_template(col):
     print("Resetting IO Enhanced card template to defaults")
     io_model = notetype_by_name(col, IO_MODEL_NAME)
     template = io_model["tmpls"][0]
-    template["qfmt"] = iocard_front
-    template["afmt"] = iocard_back
+    template["qfmt"] = with_tap_to_reveal(iocard_front)
+    template["afmt"] = with_tap_to_reveal(iocard_back)
     io_model["css"] = iocard_css
     save_notetype(col, io_model)
     return io_model

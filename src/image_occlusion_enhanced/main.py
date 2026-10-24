@@ -255,6 +255,7 @@ def on_profile_loaded():
     getSyncedConfig()
     getLocalConfig()
     getOrCreateModel()
+    ensureTapToReveal()
 
 
 # Mask toggle hotkey

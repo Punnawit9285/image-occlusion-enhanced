@@ -68,6 +68,7 @@ This add-on is the better fit if you want:
 - **More fields**: Header, Footer, Remarks, Sources and two extra fields, with formatting and pictures, rather than just Header and Back Extra.
 - **More drawing tools**: freehand shapes, paths, lines and arrows, coloured multi-line labels, layers, and grouping shapes into a single card.
 - **One note per card**, so each card shows up as its own row in the Browse window.
+- **Tap to reveal**: during review, tap any mask to uncover just that one, and tap again to cover it. Handy for checking neighbouring labels on the answer side.
 
 Anki's built-in Image Occlusion is the better fit if you want:
 

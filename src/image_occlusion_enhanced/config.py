@@ -157,6 +157,20 @@ def getOrCreateModel():
     return model
 
 
+def ensureTapToReveal():
+    """Add or update the tap-to-reveal script in the note type's templates.
+
+    Done once per script version, so a user who removes the script from a
+    template is not overruled every time the profile opens.
+    """
+    conf = getColConfig()
+    if conf is None or conf.get("tap_to_reveal", 0) >= template.TAP_TO_REVEAL_VERSION:
+        return
+    template.install_tap_to_reveal(mw.col, getOrCreateModel())
+    conf["tap_to_reveal"] = template.TAP_TO_REVEAL_VERSION
+    setColConfig(conf)
+
+
 def getModelConfig():
     model = getOrCreateModel()
     mflds = model["flds"]
