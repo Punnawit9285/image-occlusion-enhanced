@@ -22,6 +22,8 @@
 
 - [Screenshots](#screenshots)
 - [Installation](#installation)
+- [Compared with Anki's built-in Image Occlusion](#compared-with-ankis-built-in-image-occlusion)
+- [Converting notes](#converting-notes)
 - [Documentation](#documentation)
 - [Building](#building)
 - [Contributing](#contributing)
@@ -56,6 +58,31 @@ Already using Image Occlusion Enhanced from AnkiWeb? There is no need to remove 
 #### AnkiWeb <!-- omit in toc -->
 
 The original v1.4.0 release from 2022 is still available on [AnkiWeb](https://ankiweb.net/shared/info/1374772155). It does not include the changes in this repository.
+
+### Compared with Anki's built-in Image Occlusion
+
+Anki has had its own Image Occlusion since version 23.10. Both make the same kind of card, and you can move notes from one to the other at any time (see below), so the choice is not final.
+
+This add-on is the better fit if you want:
+
+- **More fields**: Header, Footer, Remarks, Sources and two extra fields, with formatting and pictures, rather than just Header and Back Extra.
+- **More drawing tools**: freehand shapes, paths, lines and arrows, coloured multi-line labels, layers, and grouping shapes into a single card.
+- **One note per card**, so each card shows up as its own row in the Browse window.
+
+Anki's built-in Image Occlusion is the better fit if you want:
+
+- **Nothing to install**, and identical behaviour on every Anki app without relying on an add-on.
+- **Fewer media files**: it draws its masks while you review, whereas this add-on saves mask images for its cards.
+
+### Converting notes
+
+On Anki 23.10 or later, select notes in the Browse window and choose *Notes* → *Image Occlusion* → *Convert to Anki's Image Occlusion...* or *Convert to Image Occlusion Enhanced...*.
+
+- Scheduling and review history move to the new cards, and the original notes are deleted. Anki makes a backup first.
+- An image is always converted as a whole: selecting one of its notes is enough.
+- Lines, arrows and other drawings that Anki's built-in Image Occlusion cannot show are painted onto a copy of the image. Labels stay editable text.
+- The conversion cannot be undone from the *Edit* menu, and your next sync has to upload the whole collection, just as when you change a note type in Anki.
+- The mask files the old notes used are moved to Anki's media trash when you close your profile. *Tools* → *Check Media* can bring them back.
 
 ### Documentation
 

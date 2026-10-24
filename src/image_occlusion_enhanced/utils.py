@@ -40,8 +40,6 @@ import urllib.request
 from typing import Optional, Tuple
 from xml.dom import minidom
 
-from aqt import mw
-
 from ._vendor import imghdr
 from ._vendor.imagesize import imagesize
 from .consts import SUPPORTED_BITMAP_FORMATS
@@ -88,6 +86,9 @@ def img_element_to_path(img_element: str, nameonly: bool = False) -> Optional[st
         return None
     if nameonly:
         return fname.group(2)
+    # imported here so that the rest of this module works without Anki's GUI
+    from aqt import mw
+
     fpath = os.path.join(mw.col.media.dir(), fname.group(2))
     if not os.path.isfile(fpath):
         return None

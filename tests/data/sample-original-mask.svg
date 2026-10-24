@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">
+ <!-- Created with Image Occlusion Enhanced -->
+ <g>
+  <title>Labels</title>
+  <line stroke-width="4" stroke="#ff0000" y2="100" x2="300" y1="50" x1="200" id="svg_10"/>
+  <text xml:space="preserve" text-anchor="middle" font-family="Arial" font-size="20" fill="#0000ff" y="40" x="150" id="svg_11">Anterior: view</text>
+ </g>
+ <g>
+  <title>Masks</title>
+  <rect stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" id="e7dd28558d524ad2a95558d2633ecd48-ao-1" height="40" width="120" y="280" x="30"/>
+  <ellipse stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" id="e7dd28558d524ad2a95558d2633ecd48-ao-2" ry="25" rx="55" cy="160" cx="705"/>
+  <rect transform="rotate(10 650 442.5)" stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" id="e7dd28558d524ad2a95558d2633ecd48-ao-3" height="35" width="200" y="425" x="550"/>
+  <path stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" id="e7dd28558d524ad2a95558d2633ecd48-ao-4" d="M 50 500 C 60 480 150 480 160 500 L 160 530 Q 100 560 50 530 Z"/>
+  <polygon stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" id="e7dd28558d524ad2a95558d2633ecd48-ao-5" points="320,140 480,140 400,220"/>
+  <g id="e7dd28558d524ad2a95558d2633ecd48-ao-6">
+   <rect stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" height="40" width="40" y="300" x="300"/>
+   <rect stroke-width="3" stroke="#2D2D2D" fill="#FFEBA2" height="40" width="40" y="300" x="460"/>
+  </g>
+  <text xml:space="preserve" text-anchor="middle" font-family="Arial" font-size="24" fill="#000000" y="80" x="400" id="svg_9">
+   <tspan dy="0" x="400">Knee</tspan>
+   <tspan dy="1.2em" x="400">joint</tspan>
+  </text>
+ </g>
+</svg>

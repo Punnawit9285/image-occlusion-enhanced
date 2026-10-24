@@ -43,3 +43,33 @@ ICONS_PATH = os.path.join(ADDON_PATH, "icons")
 SUPPORTED_BITMAP_FORMATS = ("jpeg", "png", "gif")
 SUPPORTED_VECTOR_FORMATS = ("svg",)
 SUPPORTED_EXTENSIONS = ("jpg",) + SUPPORTED_BITMAP_FORMATS + SUPPORTED_VECTOR_FORMATS
+
+# Note type
+
+IO_MODEL_NAME = "Image Occlusion Enhanced"
+IO_CARD_NAME = "IO Card"
+
+IO_FLDS = {
+    "id": "ID (hidden)",
+    "hd": "Header",
+    "im": "Image",
+    "ft": "Footer",
+    "rk": "Remarks",
+    "sc": "Sources",
+    "e1": "Extra 1",
+    "e2": "Extra 2",
+    "qm": "Question Mask",
+    "am": "Answer Mask",
+    "om": "Original Mask",
+}
+
+IO_FLDS_IDS = ["id", "hd", "im", "qm", "ft", "rk", "sc", "e1", "e2", "am", "om"]
+
+# fields that aren't user-editable
+IO_FIDS_PRIV = ["id", "im", "qm", "am", "om"]
+
+# fields that are synced between an IO Editor session and Anki's Editor
+IO_FIDS_PRSV = ["sc"]
+
+# key of the add-on's synced settings in the collection config
+IO_CONF_KEY = "imgocc"

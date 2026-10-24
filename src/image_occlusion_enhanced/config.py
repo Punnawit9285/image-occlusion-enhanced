@@ -34,43 +34,26 @@
 Sets up configuration, including constants
 """
 
-# TODO: move constants to consts.py
-
 import os
 import sys
 from copy import deepcopy
 
 from aqt import mw
 
-global IO_FLDS, IO_FLDS_IDS
-global IO_MODEL_NAME, IO_CARD_NAME, IO_HOME, IO_HOTKEY
+# re-exported: other modules read these through `from .config import *`
+from .consts import (  # noqa: F401
+    IO_CARD_NAME,
+    IO_CONF_KEY,
+    IO_FIDS_PRIV,
+    IO_FIDS_PRSV,
+    IO_FLDS,
+    IO_FLDS_IDS,
+    IO_MODEL_NAME,
+)
 
-IO_MODEL_NAME = "Image Occlusion Enhanced"
-IO_CARD_NAME = "IO Card"
-
-IO_FLDS = {
-    "id": "ID (hidden)",
-    "hd": "Header",
-    "im": "Image",
-    "ft": "Footer",
-    "rk": "Remarks",
-    "sc": "Sources",
-    "e1": "Extra 1",
-    "e2": "Extra 2",
-    "qm": "Question Mask",
-    "am": "Answer Mask",
-    "om": "Original Mask",
-}
-
-IO_FLDS_IDS = ["id", "hd", "im", "qm", "ft", "rk", "sc", "e1", "e2", "am", "om"]
+global IO_HOME, IO_HOTKEY
 
 # TODO: Use IDs instead of names to make these compatible with self.ioflds
-
-# fields that aren't user-editable
-IO_FIDS_PRIV = ["id", "im", "qm", "am", "om"]
-
-# fields that are synced between an IO Editor session and Anki's Editor
-IO_FIDS_PRSV = ["sc"]
 
 # variables for local preference handling
 sys_encoding = sys.getfilesystemencoding()
@@ -93,9 +76,6 @@ default_conf_syncd = {
 }
 
 from . import template
-
-
-IO_CONF_KEY = "imgocc"
 
 
 def getColConfig(key=IO_CONF_KEY, default=None):

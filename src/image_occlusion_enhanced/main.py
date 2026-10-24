@@ -46,11 +46,13 @@ from aqt.reviewer import Reviewer
 from aqt.utils import tooltip
 
 from .add import ImgOccAdd
+from .browser_menu import setup_browser_menu
 from .compat import field_names, wrap_method
 from .config import *
 from .consts import *
 from .dialogs import ioCritical, ioHelp
 from .lang import _
+from .mediacleanup import setup_media_cleanup
 from .options import ImgOccOpts
 from .utils import anki_has_open_image
 from .web import setup_webview_injections
@@ -314,6 +316,11 @@ def setup_main(main_window: "AnkiQt"):
     # Profile
 
     profile_did_open.append(on_profile_loaded)
+    setup_media_cleanup()
+
+    # Browser
+
+    setup_browser_menu()
 
     # Editor
 
