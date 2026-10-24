@@ -65,6 +65,13 @@ dialog_msg["add"] = _(
 <li>(Optional): Fill out additional information about your cards by switching to the <em>Fields</em> tab</li>
 <li>Click on one of the <em>Add Cards</em> buttons at the bottom of the window to add the cards to your collection</li>
 </ol>
+<p><strong>Card Types</strong></p>
+<ul>
+<li><em>Hide All, Guess One</em>: a card for every mask. All masks are shown on the front, and the answer uncovers the one the card asks about.</li>
+<li><em>Hide One, Guess One</em>: a card for every mask. The front only hides the mask the card asks about, so the rest of the image can serve as a hint.</li>
+<li><em>Hide All, Guess All</em>: a single card for the whole image. Every mask is asked about on the front, and the answer uncovers them all.</li>
+</ul>
+<p>While reviewing, tap or click a mask to uncover just that one, and again to cover it.</p>
 <p><strong>Drawing Custom Labels</strong></p>
 <ol>
 <li>Draw up the layers sidepanel by clicking on the <em>Layers</em> button at the right edge of the editor</li>
@@ -93,10 +100,12 @@ dialog_msg["add"] = _(
 dialog_msg["edit"] = _(
     """
 <b>Instructions for editing</b>:
-<br><br> Each mask shape represents a card.
+<br><br> Each mask shape represents a card, unless the image uses
+<i>Hide All, Guess All</i>, which makes a single card for all of them.
 Removing any of the existing shapes will remove the corresponding card.
 New shapes will generate new cards. You can change the occlusion type
-by using the dropdown box on the left.<br><br>If you click on the
+by using the dropdown box on the left. Switching to or from
+<i>Hide All, Guess All</i> replaces the existing cards.<br><br>If you click on the
 <i>Add new cards</i> button a completely new batch of cards will be
 generated, leaving your originals untouched.<br><br>
 <b>Actions performed in Image Occlusion's <i>Editing Mode</i> cannot be
