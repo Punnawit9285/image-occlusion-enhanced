@@ -64,8 +64,11 @@ from .masks import (
     WHOLE_IMAGE_NOTE_NR,
     build_mask,
     layer_nodes,
+    mask_file_name,
+    new_revision,
 )
-from .utils import path_to_img_element
+from .mediacleanup import schedule as schedule_media_cleanup
+from .utils import img_element_to_path, path_to_img_element
 
 # Explanation of some of the variables:
 #
@@ -114,7 +117,13 @@ class ImgOccNoteGenerator(object):
         self.fields = fields
         self.did = did
         self.qfill = "#" + getColConfig()["qfill"]
-        self._media_path = mw.col.media.dir()
+        # all mask files written by this generator share one revision
+        self.revision = new_revision()
+        self._shared_answer = None
+        # mask files the notes used before an edit, and the ones written now;
+        # whichever end up unused (e.g. after an undo) are cleaned up later
+        self._previous_media = set()
+        self._written_media = set()
         loadConfig(self)
 
     def generateNotes(self) -> Union[list, bool]:
@@ -150,6 +159,7 @@ class ImgOccNoteGenerator(object):
                 omask_path, qmasks[nr], amasks[nr], img, note_id
             )
             notes.append(note)
+        schedule_media_cleanup(self._written_media)
         tooltip(
             ngettext(
                 "One card <b>added</b>", "{card_count} cards <b>added</b>", len(qmasks)
@@ -217,6 +227,8 @@ class ImgOccNoteGenerator(object):
                 )
             else:
                 self._saveMaskAndReturnNote(None, None, None, img, note_id, nid)
+        if state == "reset" or del_count:
+            schedule_media_cleanup(self._previous_media | self._written_media)
         self._showUpdateTooltip(del_count, new_count)
         return state
 
@@ -343,9 +355,15 @@ class ImgOccNoteGenerator(object):
         old_occl_id = "%s-%s" % (self.uniq_id, self.opref["occl_tp"])
         res = self._findByNoteId(old_occl_id)
         self.nids = {}
+        self._previous_media = set()
         for nid in res:
-            note_id = get_note(mw.col, nid)[self.ioflds["id"]]
+            note = get_note(mw.col, nid)
+            note_id = note[self.ioflds["id"]]
             self.nids[note_id] = nid
+            for key in ("qm", "am", "om"):
+                name = img_element_to_path(note[self.ioflds[key]], nameonly=True)
+                if name:
+                    self._previous_media.add(name)
         logger.debug("--------------------")
         logger.debug("res %s", res)
         logger.debug("nids %s", self.nids)
@@ -489,19 +507,18 @@ class ImgOccNoteGenerator(object):
             for i in node.childNodes:
                 self._removeAttribsRecursively(i, attrs)
 
-    def _saveMask(self, mask, note_id, mtype):
+    def _saveMask(self, mask, base_id, mtype):
         """Write mask to file in media collection"""
         logger.debug(
-            _("!saving %(note_id)s, %(mtype)s"), {"note_id": note_id, "mtype": mtype}
+            _("!saving %(note_id)s, %(mtype)s"), {"note_id": base_id, "mtype": mtype}
         )
-        mask_filename = "%s-%s.svg" % (note_id, mtype)
-        mask_path = os.path.join(self._media_path, mask_filename)
-        mask_data = mask.encode("utf8")
+        name = mask_file_name(base_id, self.revision, mtype)
+        name = mw.col.media.write_data(name, mask.encode("utf8"))
+        self._written_media.add(name)
+        return name
 
-        with open(mask_path, "wb") as f:
-            f.write(mask_data)
-
-        return mask_filename
+    def _saveAnswerMask(self, amask, note_id):
+        return self._saveMask(amask, note_id, "A")
 
     def removeBlanks(self, node):
         for x in node.childNodes:
@@ -520,7 +537,7 @@ class ImgOccNoteGenerator(object):
         if omask_path:
             # Occlusions updated
             qmask_path = self._saveMask(qmask, note_id, "Q")
-            amask_path = self._saveMask(amask, note_id, "A")
+            amask_path = self._saveAnswerMask(amask, note_id)
             fields[self.ioflds["qm"]] = path_to_img_element(qmask_path)
             fields[self.ioflds["am"]] = path_to_img_element(amask_path)
             fields[self.ioflds["om"]] = path_to_img_element(omask_path)
@@ -570,6 +587,13 @@ class IoGenHideOneRevealAll(ImgOccNoteGenerator):
 
     occl_tp = HIDE_ONE_GUESS_ONE
 
+    def _saveAnswerMask(self, amask, note_id):
+        # Every card's answer is the image with no masks, so one file serves
+        # all of them instead of a copy per card.
+        if self._shared_answer is None:
+            self._shared_answer = self._saveMask(amask, self.occl_id, "A")
+        return self._shared_answer
+
 
 class IoGenHideAllGuessAll(ImgOccNoteGenerator):
     """
@@ -602,6 +626,7 @@ class IoGenHideAllGuessAll(ImgOccNoteGenerator):
         note = self._saveMaskAndReturnNote(
             omask_path, qmask, amask, img, self._wholeImageNoteId()
         )
+        schedule_media_cleanup(self._written_media)
         tooltip(_("One card <b>added</b>"), parent=None)
         return [note]
 
@@ -664,6 +689,8 @@ class IoGenHideAllGuessAll(ImgOccNoteGenerator):
         image_path = mw.col.media.add_file(self.image_path)
         img = path_to_img_element(image_path)
         self._saveMaskAndReturnNote(omask_path, qmask, amask, img, note_id, nid)
+        if state == "reset" or replaced:
+            schedule_media_cleanup(self._previous_media | self._written_media)
 
         if nid is None:
             ttip = _("One new card <b>created</b>")

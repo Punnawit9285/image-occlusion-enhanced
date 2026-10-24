@@ -76,6 +76,7 @@ default_conf_syncd = {
 }
 
 from . import template
+from .compat import save_notetype
 
 
 def getColConfig(key=IO_CONF_KEY, default=None):
@@ -168,6 +169,33 @@ def ensureTapToReveal():
         return
     template.install_tap_to_reveal(mw.col, getOrCreateModel())
     conf["tap_to_reveal"] = template.TAP_TO_REVEAL_VERSION
+    setColConfig(conf)
+
+
+def excludeMaskFieldsFromSearch():
+    """Leave the ID and mask fields out of ordinary searches.
+
+    They hold note IDs and mask file names, so searching for "svg", or for a
+    few letters that happen to appear in an ID, used to list every image
+    occlusion note. Searching such a field by name still works. Anki only
+    supports this from 23.10, and it is applied once so that the setting can
+    be turned off again in the note type's field options.
+    """
+    conf = getColConfig()
+    if conf is None or conf.get("search_excluded"):
+        return
+    model = getOrCreateModel()
+    if not any("excludeFromSearch" in fld for fld in model["flds"]):
+        return  # older Anki
+    names = {conf["flds"].get(key, IO_FLDS[key]) for key in ("id", "qm", "am", "om")}
+    changed = False
+    for fld in model["flds"]:
+        if fld["name"] in names and not fld.get("excludeFromSearch"):
+            fld["excludeFromSearch"] = True
+            changed = True
+    if changed:
+        save_notetype(mw.col, model)
+    conf["search_excluded"] = 1
     setColConfig(conf)
 
 

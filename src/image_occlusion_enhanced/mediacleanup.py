@@ -28,16 +28,17 @@
 Moves mask files that are no longer used to Anki's media trash.
 
 Editing masks writes new files rather than overwriting the old ones, and
-converting notes leaves their mask files behind. Those files are only
-trashed when the profile closes: until then Edit > Undo can still bring back
-notes that use them, while Anki starts every session with an empty undo
-history. A file some note still uses is never trashed. Files in the trash
-can be brought back with Tools > Check Media > Restore Deleted.
+converting notes leaves their mask files behind. Both the old and the new
+files are noted, and those no note uses are trashed when the profile
+closes: until then Edit > Undo can still switch notes back and forth
+between them, while Anki starts every session with an empty undo history.
+A file some note still uses is never trashed. Files in the trash can be
+brought back with Tools > Check Media > Restore Deleted.
 """
 
-from typing import Iterable, List
-
-from aqt import mw
+import html
+import re
+from typing import Iterable, List, Set
 
 from .logger import logger
 
@@ -46,6 +47,8 @@ PROFILE_KEY = "imgocc_unused_media"
 
 def schedule(names: Iterable[str]) -> None:
     """Trash these media files when the profile closes, if unused by then"""
+    from aqt import mw
+
     if mw.pm.profile is None:
         return
     pending: List[str] = list(mw.pm.profile.get(PROFILE_KEY) or [])
@@ -55,25 +58,29 @@ def schedule(names: Iterable[str]) -> None:
     mw.pm.profile[PROFILE_KEY] = pending
 
 
-def is_used(col, name: str) -> bool:
-    pattern = (
-        "%" + name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-    )
-    return bool(
-        col.db.scalar(
-            "select 1 from notes where flds like ? escape '\\' limit 1", pattern
-        )
-    )
+_SRC_RE = re.compile(r"""\bsrc=(["'])(.*?)\1""", re.I | re.S)
+
+
+def used_names(col) -> Set[str]:
+    """Names of the mask files any note refers to, in one pass over the notes"""
+    used: Set[str] = set()
+    for (fields,) in col.db.execute("select flds from notes where flds like '%.svg%'"):
+        for match in _SRC_RE.finditer(fields):
+            used.add(html.unescape(match.group(2)))
+    return used
 
 
 def trash_unused(col, names: Iterable[str]) -> List[str]:
-    unused = [name for name in names if col.media.have(name) and not is_used(col, name)]
+    used = used_names(col)
+    unused = [name for name in names if name not in used and col.media.have(name)]
     if unused:
         col.media.trash_files(unused)
     return unused
 
 
 def on_profile_will_close() -> None:
+    from aqt import mw
+
     if mw.pm.profile is None or mw.col is None:
         return
     pending = mw.pm.profile.get(PROFILE_KEY)

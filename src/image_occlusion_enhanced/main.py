@@ -256,6 +256,7 @@ def on_profile_loaded():
     getLocalConfig()
     getOrCreateModel()
     ensureTapToReveal()
+    excludeMaskFieldsFromSearch()
 
 
 # Mask toggle hotkey

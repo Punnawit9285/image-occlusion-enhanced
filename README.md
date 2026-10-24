@@ -74,7 +74,7 @@ This add-on is the better fit if you want:
 Anki's built-in Image Occlusion is the better fit if you want:
 
 - **Nothing to install**, and identical behaviour on every Anki app without relying on an add-on.
-- **Fewer media files**: it draws its masks while you review, whereas this add-on saves mask images for its cards.
+- **The fewest media files**: it draws its masks while you review, whereas this add-on saves a mask image for each card (cards of a *Hide One, Guess One* image share their answer image). Mask files that are no longer used are moved to Anki's media trash when you close your profile.
 
 ### Converting notes
 
