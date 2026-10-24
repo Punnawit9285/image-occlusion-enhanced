@@ -124,6 +124,8 @@ class ImgOccNoteGenerator(object):
         # whichever end up unused (e.g. after an undo) are cleaned up later
         self._previous_media = set()
         self._written_media = set()
+        # what the last generateNotes() or updateNotes() changed
+        self.changes = None
         loadConfig(self)
 
     def generateNotes(self) -> Union[list, bool]:
@@ -132,7 +134,7 @@ class ImgOccNoteGenerator(object):
         try:
             return self._generateNotes()
         finally:
-            end_undo_group(mw.col, token)
+            self.changes = end_undo_group(mw.col, token)
 
     def _generateNotes(self) -> Union[list, bool]:
         self.uniq_id = str(uuid.uuid4()).replace("-", "")
@@ -174,7 +176,7 @@ class ImgOccNoteGenerator(object):
         try:
             return self._updateNotes()
         finally:
-            end_undo_group(mw.col, token)
+            self.changes = end_undo_group(mw.col, token)
 
     def _updateNotes(self):
         state = "default"

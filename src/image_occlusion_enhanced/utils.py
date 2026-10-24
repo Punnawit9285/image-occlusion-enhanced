@@ -72,9 +72,14 @@ def path_to_url(path: str) -> str:
 
 
 def path_to_img_element(path: str) -> str:
-    """Return HTML img element for given path"""
+    """Return HTML img element for given path.
+
+    Written the way Anki's editor writes it. Anki's editor rewrites
+    '<img ... />' as '<img ...>' and saves the note whenever it shows one, so
+    the old form added an "Update Note" step to Edit > Undo after every edit.
+    """
     fname = os.path.split(path)[1]
-    return '<img src="%s" />' % fname
+    return '<img src="%s">' % fname
 
 
 def img_element_to_path(img_element: str, nameonly: bool = False) -> Optional[str]:

@@ -51,6 +51,7 @@ from .compat import field_names, wrap_method
 from .config import *
 from .consts import *
 from .dialogs import ioCritical, ioHelp
+from .editor import open_editors
 from .lang import _
 from .mediacleanup import setup_media_cleanup
 from .options import ImgOccOpts
@@ -66,8 +67,7 @@ if TYPE_CHECKING:
 
 def on_io_settings():
     """Call settings dialog if Editor not active"""
-    # TODO: fix ImgOccEdit detection
-    if hasattr(mw, "ImgOccEdit") and mw.ImgOccEdit.visible:
+    if any(editor.visible for editor in open_editors):
         tooltip(_("Please close Image Occlusion Editor to access the Options."))
         return
     dialog = ImgOccOpts()
@@ -81,6 +81,16 @@ def on_io_help():
 
 def on_image_occlusion_button(self, origin=None, image_path=None):
     """Launch Image Occlusion Enhanced"""
+    # Have the editor save what is still being typed first, so that the
+    # tags and fields Image Occlusion starts from are current.
+    save_first = getattr(self, "call_after_note_saved", None)
+    if save_first is not None and getattr(self, "note", None) is not None:
+        save_first(lambda: _launch_image_occlusion(self, origin, image_path))
+    else:
+        _launch_image_occlusion(self, origin, image_path)
+
+
+def _launch_image_occlusion(self, origin, image_path):
     origin = origin or get_editor_parent_instance(self.parentWindow)
     io_model = getOrCreateModel()
     if io_model:

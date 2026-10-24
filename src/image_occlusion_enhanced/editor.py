@@ -41,6 +41,7 @@ import re
 import urllib.parse
 import urllib.request
 import uuid
+import weakref
 from typing import List, Optional
 
 from anki.config import Config
@@ -1163,11 +1164,17 @@ class FormattingToolbar(QWidget):
         return QIcon(pixmap)
 
 
+# Editor windows currently open, e.g. so that the options are not changed
+# underneath one
+open_editors: "weakref.WeakSet[ImgOccEdit]" = weakref.WeakSet()
+
+
 class ImgOccEdit(QDialog):
     """Main Image Occlusion Editor dialog"""
 
     def __init__(self, imgoccadd, parent):
         QDialog.__init__(self)
+        open_editors.add(self)
         if hasattr(mw, "setupDialogGC"):
             mw.setupDialogGC(self)
         self.setWindowFlags(Qt.WindowType.Window)
@@ -1191,6 +1198,7 @@ class ImgOccEdit(QDialog):
         self._on_close()
 
     def _on_close(self):
+        open_editors.discard(self)
         if mw.pm.profile is not None:
             self.deckChooser.cleanup()
             saveGeom(self, "imgoccedit")

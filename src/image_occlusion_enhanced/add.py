@@ -49,7 +49,7 @@ from .compat import (
     deck_chooser_of,
     field_names,
     note_type_of,
-    refresh_main_window,
+    notify_changes,
     selected_deck_id,
     showWarning,
 )
@@ -207,7 +207,7 @@ class ImgOccAdd(object):
         self.callImgOccEdit(width, height)
 
     def setPreservedAttrs(self, note):
-        # FIXME: Not necessarily up-to-date with new tag edit contents
+        # current, as the editor saves before Image Occlusion is opened
         self.opref["tags"] = note.tags
         if self.origin == "addcards":
             self.opref["did"] = selected_deck_id(
@@ -561,7 +561,7 @@ class ImgOccAdd(object):
         if close:
             dialog.close()
 
-        refresh_main_window()
+        notify_changes(gen.changes)
 
     def onEditNotesButton(self, choice):
         dialog = self.imgoccedit
@@ -593,69 +593,11 @@ class ImgOccAdd(object):
         r = gen.updateNotes()
         if r is False:
             return False
-
-        if r != "reset":
-            # no media cache/collection reset required
-            dialog.close()
-
-        else:
-            # Refresh image cache. We need to do this in order to refresh image
-            # display across all web views the images could be presented in.
-            # (i.e. cache-busting IO images in the reviewer alone via JS is not
-            # sufficient)
-            try:
-                mw.web.page().profile().clearHttpCache()
-            except Exception as e:
-                # Stale images may linger until restart; not worth failing
-                # an edit that has already been saved.
-                logger.warning("could not clear web cache: %s", e)
-            dialog.close()
-
-            # write a dummy file to update collection.media modtime and
-            # force sync
-            media_dir = mw.col.media.dir()
-            fpath = os.path.join(media_dir, "syncdummy.txt")
-            if not os.path.isfile(fpath):
-                with open(fpath, "w") as f:
-                    f.write("io sync dummy")
-            os.remove(fpath)
-
-        def refresh_editor():
-            # FIXME: Incredibly ugly hack to refresh editor web view in order to make
-            # changes to images visible
-            ed = self.ed
-            # These are editor internals rather than public API. Only tear the
-            # web view down if every piece needed to rebuild it is present, so
-            # a future Anki cannot leave the editor half-dismantled; a plain
-            # note reload still shows the new masks.
-            web = getattr(ed, "web", None)
-            if (
-                web is not None
-                and hasattr(ed, "outerLayout")
-                and hasattr(ed, "setupWeb")
-                and hasattr(web, "stdHtml")
-            ):
-                ed.outerLayout.removeWidget(web)
-                web.reload()
-                web.stdHtml("")
-                ed.setupWeb()
-            ed.loadNote()
-
-        refresh_editor()
-
-        def refresh_reviewer():
-            # FIXME: Incredibly ugly hack to refresh reviewer web view in  order to make
-            # changes to images visible. Other solutions like
-            # reviewer._initWeb(); reviewer._showQuestion() do not seem to work reliably
-            if not hasattr(mw, "moveToState"):
-                return
-            mw.moveToState("overview")
-            mw.progress.single_shot(100, lambda: mw.moveToState("review"))
-
-        refresh_main_window()
-
-        if mw.state == "review":
-            mw.progress.single_shot(100, refresh_reviewer)
+        dialog.close()
+        # Edited masks are saved under new file names, so the reviewer, the
+        # browser and open editors only need to show the notes again; no web
+        # view can still have the old masks cached under those names.
+        notify_changes(gen.changes)
 
     def _checkSvg(self, svg, dialog):
         """Report a failed mask export instead of crashing further down.

@@ -45,13 +45,9 @@ from .lang import _
 
 io_link_wiki = "https://github.com/glutanimate/image-occlusion-enhanced/wiki"
 io_link_tut = "https://www.youtube.com/playlist?list=PL3MozITKTz5YFHDGB19ypxcYfJ1ITk_6o"
-io_link_thread = (
-    "https://anki.tenderapp.com/discussions/add-ons/"
-    "8295-image-occlusion-enhanced-official-thread"
-)
-io_link_obsolete_aa = (
-    "https://github.com/glutanimate/image-occlusion-enhanced/wiki/ADD_LINK_HERE"
-)
+# The forum that used to host the support thread has closed down, so
+# problems are reported where this version is maintained.
+io_link_issues = "https://github.com/Punnawit9285/image-occlusion-enhanced/issues"
 
 # Predefiend dialog messages
 
@@ -90,11 +86,11 @@ dialog_msg["add"] = _(
 <ul>
 <li><a href="{io_link_wiki}">Image Occlusion Enhanced Wiki</a></li>
 <li><a href="{io_link_tut}">YouTube Tutorials</a></li>
-<li><a href="{io_link_thread}">Official support thread</a></li>
+<li><a href="{io_link_issues}">Report a problem or suggest an idea</a></li>
 </ul>
 """
 ).format(
-    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_thread=io_link_thread
+    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_issues=io_link_issues
 )
 
 dialog_msg["edit"] = _(
@@ -133,7 +129,7 @@ dialog_msg["main"] = _(
 <h2>Help and Support</h2>
 <p><a href="{io_link_wiki}">Image Occlusion Enhanced Wiki</a></p>
 <p><a href="{io_link_tut}">Official Video Tutorial Series</a></p>
-<p><a href="{io_link_thread}">Support Thread</a></p>
+<p><a href="{io_link_issues}">Report a problem or suggest an idea</a></p>
 <h2>Credits and License</h2>
 <p style="font-size:12pt;"><em>Copyright © 2012-2015
 <a href="https://github.com/tmbb">Tiago Barroso</a></em></p>
@@ -151,10 +147,12 @@ Lundh. Licensed under the <a href="http://www.pythonware.com/products/pil/licens
 PIL license</a></p></li>
 <li><p><a href="https://github.com/shibukawa/imagesize_py">imagesize.py</a> v0.7.1.
 Copyright (c) 2016 Yoshiki Shibukawa. Licensed under the MIT license.</p></li>
+<li><p><a href="https://github.com/progers/pathseg">pathseg</a> 1.2.1.
+Copyright (c) 2015 The Chromium Authors. Licensed under a BSD-style license.</p></li>
 </ul>
 """
 ).format(
-    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_thread=io_link_thread
+    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_issues=io_link_issues
 )
 
 dialog_msg["obsolete_aa"] = _(
@@ -163,12 +161,14 @@ dialog_msg["obsolete_aa"] = _(
 The "Hide All, Reveal All" image occlusion mode used by this card
 is no longer supported by the add-on. You can still review it just like
 you would with any other card, but if you proceed with editing the note,
-it will automatically be converted to the "Hide All, Guess One" type.<br><br>
-For more information on why this occlusion mode was removed and how to
-replicate its functionality please see here:<br><br>
-<a href="{io_link_obsolete_aa}">Wiki: Hide All, Reveal All</a>
+it will automatically be converted to the "Hide All, Guess One" type,
+unless you choose another type below.<br><br>
+"Hide All, Guess One" also hides every label on the front, but only reveals
+the one asked about on the back; you can tap any other mask while reviewing
+to uncover it as well. "Hide All, Guess All" makes a single card that
+reveals everything at once.
 """
-).format(io_link_obsolete_aa=io_link_obsolete_aa)
+)
 
 OCR_INSTALL = _(
     """Text recognition uses Tesseract wherever it is installed, and otherwise

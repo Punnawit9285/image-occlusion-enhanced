@@ -64,6 +64,7 @@ from aqt.qt import (
 from . import ocr
 from .compat import field_names, rename_field, showInfo
 from .config import *
+from .editor import open_editors
 from .lang import _
 from .logger import logger
 from .theme import isNightMode, qtStylesheet
@@ -511,8 +512,9 @@ class ImgOccOpts(QDialog):
         except AnkiError:
             print("Field rename action aborted")
             return
-        if modified and hasattr(mw, "ImgOccEdit"):
-            self.resetIoEditor(flds)
+        if modified:
+            for editor in list(open_editors):
+                self.resetIoEditor(editor, flds)
         io_conf = getColConfig()
         io_conf["ofill"] = self.ofill
         io_conf["qfill"] = self.qfill
@@ -527,11 +529,8 @@ class ImgOccOpts(QDialog):
         mw.pm.profile["imgocc"]["ocr_languages"] = self.ocr_languages.text().strip()
         self.close()
 
-    def resetIoEditor(self, flds):
-        """Reset existing instance of IO Editor"""
-        # TODO: either delete method or refactor into method that updates running
-        # instance of I/O (we no longer reuse old ImgOccEdit instances)
-        dialog = mw.ImgOccEdit
+    def resetIoEditor(self, dialog, flds):
+        """Update an open IO Editor to renamed fields"""
         loadConfig(dialog)
         dialog.resetFields()
         dialog.setupFields(flds)

@@ -140,8 +140,8 @@ def _media_path(col, name: Optional[str]) -> Optional[str]:
     return None
 
 
-def _img(name: str, closing: str = "") -> str:
-    return '<img src="%s"%s>' % (html.escape(name, quote=True), closing)
+def _img(name: str) -> str:
+    return '<img src="%s">' % html.escape(name, quote=True)
 
 
 def _field_search(field: str, value: str) -> str:
@@ -445,7 +445,7 @@ def _native_note_to_ioe(
             masks.mask_file_name(occl_id, revision, "A"), answer.encode("utf-8")
         )
 
-    image_field = _img(image, " /")
+    image_field = _img(image)
     header = note.fields[indexes[NATIVE_HEADER]]
     back_extra = note.fields[indexes[NATIVE_BACK_EXTRA]]
     comments = (
@@ -473,9 +473,9 @@ def _native_note_to_ioe(
             "id": note_id,
             "hd": header,
             "im": image_field,
-            "qm": _img(qmask, " /"),
-            "am": _img(amask, " /"),
-            "om": _img(omask, " /"),
+            "qm": _img(qmask),
+            "am": _img(amask),
+            "om": _img(omask),
             "rk": back_extra,
             "e1": comments,
         }

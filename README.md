@@ -141,6 +141,8 @@ I would also like to extend my heartfelt thanks to everyone who has helped with 
 
 - [imagesize.py](https://github.com/shibukawa/imagesize_py) v0.7.1. Copyright (c) 2016 Yoshiki Shibukawa. Licensed under the MIT license.
 
+- [pathseg](https://github.com/progers/pathseg) 1.2.1. Copyright (c) 2015 The Chromium Authors. Licensed under a BSD-style license (see `svg-edit/editor/pathseg.js`).
+
 Image Occlusion Enhanced is free and open-source software. The add-on code that runs within Anki is released under the GNU AGPLv3 license, extended by a number of additional terms. For more information please see the [LICENSE](https://github.com/glutanimate/image-occlusion-enhanced/blob/master/LICENSE) file that accompanied this program.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY.
