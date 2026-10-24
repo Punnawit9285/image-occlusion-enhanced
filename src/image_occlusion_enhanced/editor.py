@@ -1343,6 +1343,10 @@ class ImgOccEdit(QDialog):
         image_btn.setIconSize(QSize(16, 16))
         image_btn.setAutoDefault(False)
 
+        text_btn = QPushButton(_("Mask &Text"))
+        text_btn.clicked.connect(self.maskText)
+        text_btn.setAutoDefault(False)
+
         self.occl_tp_select = QComboBox()
         self.occl_tp_select.addItem(_("Don't Change"), "Don't Change")
         self.occl_tp_select.addItem(_("Hide All, Guess One"), "Hide All, Guess One")
@@ -1395,6 +1399,12 @@ class ImgOccEdit(QDialog):
         close_tt = _("Close Image Occlusion Editor without generating cards")
 
         image_btn.setToolTip(image_tt)
+        text_btn.setToolTip(
+            _(
+                "Find the text labels in the image and cover each with a mask."
+                "<br>Labels that already have a mask are left alone."
+            )
+        )
         self.edit_btn.setToolTip(edit_tt)
         self.new_btn.setToolTip(new_tt)
         self.ao_btn.setToolTip(ao_tt)
@@ -1408,6 +1418,7 @@ class ImgOccEdit(QDialog):
 
         for btn in [
             image_btn,
+            text_btn,
             self.edit_btn,
             self.new_btn,
             self.ao_btn,
@@ -1437,7 +1448,8 @@ class ImgOccEdit(QDialog):
         bottom_hbox.setContentsMargins(14, 10, 14, 12)
         bottom_hbox.setSpacing(8)
         bottom_hbox.addWidget(image_btn)
-        bottom_hbox.insertStretch(1, stretch=1)
+        bottom_hbox.addWidget(text_btn)
+        bottom_hbox.insertStretch(2, stretch=1)
         bottom_hbox.addWidget(self.bottom_label)
         bottom_hbox.addWidget(self.occl_tp_select)
         bottom_hbox.addWidget(button_box)
@@ -1555,6 +1567,9 @@ class ImgOccEdit(QDialog):
     def changeImage(self):
         self.imgoccadd.onChangeImage()
         self.fitImageCanvas()
+
+    def maskText(self):
+        self.imgoccadd.onMaskText()
 
     def defaultAction(self, close):
         if self.mode == "add":

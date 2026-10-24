@@ -170,6 +170,27 @@ replicate its functionality please see here:<br><br>
 """
 ).format(io_link_obsolete_aa=io_link_obsolete_aa)
 
+OCR_INSTALL = _(
+    """Text recognition uses Tesseract wherever it is installed, and otherwise
+the recognition built into macOS and Windows. To install Tesseract:
+<ul>
+<li>macOS: <code>brew install tesseract</code>
+(<a href="https://brew.sh">Homebrew</a>)</li>
+<li>Windows: the installer from
+<a href="https://github.com/UB-Mannheim/tesseract/wiki">UB Mannheim</a></li>
+<li>Linux: your distribution's <code>tesseract-ocr</code> package</li>
+</ul>
+If Anki does not find it afterwards, enter its location under <i>Tools</i>
+&rarr; <i>Image Occlusion Enhanced Options</i>. Languages other than
+English need their Tesseract language data, and the language codes
+entered there, such as <code>eng+deu</code>."""
+)
+
+dialog_msg["ocr_missing"] = (
+    _("<b>No text recognition is available on this computer.</b><br><br>")
+    + OCR_INSTALL
+)
+
 dialog_msg["model_error"] = _(
     "<b>Error</b>: Image Occlusion note type "
     "not configured properly. Please make sure you did not "

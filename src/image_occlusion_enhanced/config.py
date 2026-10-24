@@ -62,7 +62,14 @@ IO_HOTKEY = "Ctrl+Shift+O"
 
 # default configurations
 # TODO: update version number before release
-default_conf_local = {"version": 1.25, "dir": IO_HOME, "hotkey": IO_HOTKEY}
+default_conf_local = {
+    "version": 1.25,
+    "dir": IO_HOME,
+    "hotkey": IO_HOTKEY,
+    # text recognition: Tesseract's location ("" to find it) and languages
+    "ocr_tesseract": "",
+    "ocr_languages": "",
+}
 default_conf_syncd = {
     "version": 1.25,
     "ofill": "FFEBA2",
