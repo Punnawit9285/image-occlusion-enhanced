@@ -46,14 +46,14 @@
 
 #### From this repository's releases <!-- omit in toc -->
 
-This version carries a reworked editor that is not on AnkiWeb: formatting and images in the *Fields* tab, a light/dark theme that follows Anki's, multi-line text labels, and fixes for current Anki releases. It is tested on Anki 26.05 and 26.09.
+This version continues the original add-on with a reworked editor, new card types and tools, and fixes for current Anki releases; the [changelog](./CHANGELOG.md) lists them all. It runs on Anki 2.1.50 and later, and is tested on Anki 2.1.50, 23.12 and 26.09.
 
 1. Download `image-occlusion-enhanced-<version>.ankiaddon` from the [latest release](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/latest) (listed under *Assets*).
 2. In Anki's main window, open *Tools* → *Add-ons*.
 3. Drag the `.ankiaddon` file onto the add-ons list, or click *Install from file…* and choose it.
 4. Restart Anki.
 
-Already using Image Occlusion Enhanced from AnkiWeb? There is no need to remove it first: installing this package switches the AnkiWeb version off for you. Your image occlusion notes, the note type and your settings are kept, because they live in your collection rather than in the add-on. To go back, enable the AnkiWeb version again under *Tools* → *Add-ons* and disable this one.
+Already using Image Occlusion Enhanced from AnkiWeb? There is no need to remove it first: installing this package switches the AnkiWeb version off for you, and if both are ever enabled at once, the add-on offers to disable the older one. Your image occlusion notes, the note type and your settings are kept, because they live in your collection rather than in the add-on. To go back, enable the AnkiWeb version again under *Tools* → *Add-ons* and disable this one.
 
 #### AnkiWeb <!-- omit in toc -->
 
@@ -99,7 +99,7 @@ To build the `.ankiaddon` package yourself (needs only Python 3.9 or newer):
     cd image-occlusion-enhanced
     python3 tools/build_ankiaddon.py
 
-The package is written to `build/`.
+Two packages are written to `build/`: one to install from a file, and one ending in `-ankiweb.ankiaddon` for uploading to AnkiWeb.
 
 For development, link the source folder into Anki's add-ons folder instead, so that a restart of Anki picks up your changes. *Tools* → *Add-ons* → *View Files* opens that folder; on macOS it is `~/Library/Application Support/Anki2/addons21`:
 
@@ -137,7 +137,7 @@ I would also like to extend my heartfelt thanks to everyone who has helped with 
 
 - [SVG Edit](https://github.com/SVG-Edit/svgedit) 2.6. Copyright (c) 2009-2012 by SVG-edit authors. Licensed under the MIT license.
 
-- [Python Imaging Library](http://www.pythonware.com/products/pil/) (PIL) 1.1.7. Copyright (c) 1997-2011 by Secret Labs AB, Copyright (c) 1995-2011 by Fredrik Lundh. Licensed under the [PIL license](http://www.pythonware.com/products/pil/license.htm)
+- `imghdr` from the [Python](https://www.python.org) standard library, which Python 3.13 no longer includes. Copyright (c) 2001-2018 Python Software Foundation. Licensed under the Python Software Foundation License (see `_vendor/PYTHON.LICENSE`).
 
 - [imagesize.py](https://github.com/shibukawa/imagesize_py) v0.7.1. Copyright (c) 2016 Yoshiki Shibukawa. Licensed under the MIT license.
 

@@ -48,6 +48,7 @@ def test_tap_to_reveal_in_chromium(tmp_path):
     assert not loaded["imgVisible"]
     assert results["clicked"]["revealed"] == 1
     assert results["clickedTwice"]["revealed"] == 0
+    assert results["toggled"]["aligned"] and results["toggled"]["revealed"] == 0
     assert results["resized"]["aligned"]
     # whenever the mask cannot be used, the card stays as it was
     for case in ("missing", "noMasks", "fileUrl"):

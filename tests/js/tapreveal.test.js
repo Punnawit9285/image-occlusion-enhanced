@@ -76,6 +76,12 @@ const probe = () => {
   results.clicked = await page.evaluate(probe);
   await page.mouse.click(box[0], box[1]);
   results.clickedTwice = await page.evaluate(probe);
+  // hide and show the masks, as the card's Toggle Masks button does
+  await page.evaluate(() => (document.getElementById("io-overlay").style.display = "none"));
+  await page.waitForTimeout(100);
+  await page.evaluate(() => (document.getElementById("io-overlay").style.display = "block"));
+  await page.waitForTimeout(200);
+  results.toggled = await page.evaluate(probe);
   await page.setViewportSize({ width: 400, height: 400 });
   await page.evaluate(() => (document.body.style.width = "300px"));
   await page.waitForTimeout(300);

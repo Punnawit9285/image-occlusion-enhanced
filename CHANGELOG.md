@@ -10,6 +10,43 @@ If you enjoy Image Occlusion Enhanced, please consider supporting my work on Pat
 
 :heart: My heartfelt thanks goes out to everyone who has supported this add-on through their tips, contributions, or any other means (you know who you are!). All of this would not have been possible without you. Thank you for being awesome!
 
+## [2.1.0] - 2026-10-24
+
+### [Download](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/tag/v2.1.0)
+
+### Added
+
+- **Convert notes to and from Anki's built-in Image Occlusion** (Anki 23.10 and later): select notes in the Browse window and choose *Notes* → *Image Occlusion*. An image is converted as a whole, and scheduling, including FSRS memory state, and review history move to the new cards. Anki makes a backup first, and the next sync uploads the whole collection, as after changing a note type. Labels stay editable text; lines, arrows and other drawings the built-in format cannot show are painted onto a copy of the image. Anything that could not be converted is listed afterwards.
+- **Tap to reveal**: during review, tap or click any mask to uncover just that one, and again to cover it. Tested in Anki on the desktop; where an app does not let the card load its mask image, as some mobile apps may not, cards behave exactly as before.
+- **Hide All, Guess All**: a third card type that makes a single card for the whole image, asking about every mask at once.
+- **Mask Text**: a new button in the mask editor finds the text labels in the image and covers each with a mask. It uses Tesseract where installed, and otherwise the text recognition built into macOS and Windows. The options gain a *Text Recognition* section for Tesseract's location and languages.
+- If another copy of Image Occlusion Enhanced is enabled as well, such as the original 2022 release from AnkiWeb, the add-on offers to disable it. Running both added every button twice.
+
+### Changed
+
+- *Hide One, Guess One* cards share a single answer image instead of saving an identical copy per card.
+- Mask files are saved under a new name whenever masks change, and files that no note uses any more are moved to Anki's media trash when the profile closes. *Tools* → *Check Media* can bring them back.
+- The ID and mask fields are left out of ordinary searches (Anki 23.10 and later), so searching for "svg", or a few letters that happen to occur in an ID, no longer lists every image occlusion note.
+- The help now points to this repository's issue tracker; the forum the old support thread was on has closed.
+- Opening Image Occlusion from an editor first saves what is being typed there, so the tags and fields it starts from are current.
+
+### Fixed
+
+- Fixed images with a freehand (pencil) or path mask opening empty in the mask editor when edited, so that saving offered to delete every card of the image. The editor now ships a complete replacement for the `pathSegList` API Chromium removed, so such masks load, edit and save again.
+- Fixed *Edit* → *Undo* after editing an image undoing an invisible "Update Note" step instead of the edit: Anki's editor re-saved every image field in a slightly different form.
+- Fixed edited masks sometimes still showing their old version: the add-on overwrote files in place and then cleared Chromium's whole web cache, rebuilt the editor and bounced the main window to the deck overview and back. Edits now just refresh the reviewer, the browser and the editors, as Anki's own operations do.
+- Fixed the options opening while the mask editor was open, which the add-on warned against but no longer prevented.
+- Fixed the masks of *Tap to reveal* shrinking to nothing after toggling them off and on in Anki 2.1.50, whose web view does not always report the image's size.
+- Fixed the "One existing card deleted" message choosing between singular and plural by the wrong number.
+- Fixed a broken link in the notice about the retired "Hide All, Reveal All" mode.
+- Fixed the select tool's icon going blank while editing the points of a path.
+- Fixed the options dialog squeezing its rows together, cutting off the field name boxes.
+
+### Development
+
+- Tests run on every push on GitHub, including Tesseract and the review-time script in a real browser, and pushing a version tag publishes a release with packages for GitHub and AnkiWeb (see CONTRIBUTING.md).
+- Tested on Anki 2.1.50, 23.12 and 26.09.
+
 ## [2.0.1] - 2026-09-15
 
 ### [Download](https://github.com/Punnawit9285/image-occlusion-enhanced/releases/tag/v2.0.1)

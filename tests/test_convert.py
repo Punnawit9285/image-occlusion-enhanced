@@ -109,11 +109,14 @@ def add_ioe_set(col, svg=SVG, mode="ao", skip=()):
 
 def review(col, card, interval, reps):
     """Give a card review history and a review-state schedule"""
+    from anki.cards import FSRSMemoryState
+
     card.type = card.queue = 2
     card.ivl = interval
     card.due = col.sched.today + interval
     card.reps = reps
     card.factor = 2500
+    card.memory_state = FSRSMemoryState(stability=interval * 1.5, difficulty=6.5)
     col.update_card(card)
     now = int(time.time() * 1000)
     for i in range(reps):
@@ -170,6 +173,8 @@ def test_ioe_to_native_and_back(col):
     assert len(native_cards) == 6
     moved = native_cards[2]
     assert (moved.ivl, moved.reps, moved.type) == (12, 4, 2)
+    assert round(moved.memory_state.stability, 3) == 18.0
+    assert round(moved.memory_state.difficulty, 3) == 6.5
     assert revlog_count(col, moved.id) == 4
     assert revlog_count(col, cards[third].id) == 0
     # Anki reads the note back without complaint
@@ -185,6 +190,7 @@ def test_ioe_to_native_and_back(col):
     assert sorted(by_nr) == [1, 2, 3, 4, 5, 6]
     card = by_nr[3].cards()[0]
     assert (card.ivl, card.reps) == (12, 4)
+    assert round(card.memory_state.stability, 3) == 18.0
     assert revlog_count(col, card.id) == 4
     for note in ioe:
         for key in ("qm", "am", "om"):

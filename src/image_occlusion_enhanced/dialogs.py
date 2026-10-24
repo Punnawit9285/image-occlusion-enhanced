@@ -141,10 +141,9 @@ dialog_msg["main"] = _(
 <p>Third-party open-source software shipped with <em>Image Occlusion Enhanced</em>:</p>
 <ul><li><p><a href="https://github.com/SVG-Edit/svgedit">SVG Edit</a> 2.6.
 Copyright (c) 2009-2012 SVG-edit authors. Licensed under the MIT license</a></p></li>
-<li><p><a href="http://www.pythonware.com/products/pil/">Python Imaging Library</a>
-(PIL) 1.1.7. Copyright (c) 1997-2011 by Secret Labs AB, Copyright (c) 1995-2011 by Fredrik
-Lundh. Licensed under the <a href="http://www.pythonware.com/products/pil/license.htm"
-PIL license</a></p></li>
+<li><p>imghdr from the <a href="https://www.python.org">Python</a> standard library.
+Copyright (c) 2001-2018 Python Software Foundation. Licensed under the Python Software
+Foundation License.</p></li>
 <li><p><a href="https://github.com/shibukawa/imagesize_py">imagesize.py</a> v0.7.1.
 Copyright (c) 2016 Yoshiki Shibukawa. Licensed under the MIT license.</p></li>
 <li><p><a href="https://github.com/progers/pathseg">pathseg</a> 1.2.1.

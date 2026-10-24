@@ -19,3 +19,5 @@ Most of the code that runs inside Anki can only be checked there. Please try a c
 ### Releases
 
 The version number lives in `src/image_occlusion_enhanced/_version.py`; `pyproject.toml` must agree, and `CHANGELOG.md` needs an entry for it. Pushing a tag such as `v2.1.0` then tests and builds the add-on and publishes a GitHub release with the package attached and the changelog entry as its notes. The workflow refuses to publish if the tag and the version files disagree.
+
+The release carries two packages. `image-occlusion-enhanced-<version>.ankiaddon` is for installing from GitHub. `image-occlusion-enhanced-<version>-ankiweb.ankiaddon` is the one to upload to AnkiWeb: it is the same add-on, but installing it from AnkiWeb also switches off a copy installed from GitHub. After the first upload, enter the AnkiWeb ID as `ANKIWEB_ID` in `tools/build_ankiaddon.py`, so that the GitHub package does the same the other way round.

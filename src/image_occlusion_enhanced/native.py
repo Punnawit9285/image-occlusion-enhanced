@@ -466,30 +466,53 @@ class _Converter:
             return [(polygon[0], polygon[1], fill)] if polygon else []
         return None
 
-    def label(self, node, matrix: Matrix) -> Optional[Shape]:
+    def labels(self, node, matrix: Matrix) -> List[Shape]:
+        """Text shapes for a label, one per line.
+
+        Anki 23.x draws text on a single line at 40px times "scale" and does
+        not know "fs", while later versions draw "fs" (a fraction of the
+        image height) times "scale". Giving both, with fs * height = 40,
+        shows the label at its size on either. Lines are separate shapes as
+        23.x cannot break them.
+        """
         matrix = geometry.multiply(
             matrix, geometry.parse_transform(node.getAttribute("transform"))
         )
-        left, top, _w, _h, font_size, lines = _text_box(node)
-        text = "\n".join(lines).strip("\n")
-        if not text.strip():
-            return None
-        x, y = geometry.apply(matrix, (left, top))
+        _left, top, _w, _h, font_size, lines = _text_box(node)
+        x = _float_attr(node, "x")
+        tspans = node.getElementsByTagName("tspan")
+        if tspans and tspans[0].hasAttribute("x"):
+            x = _float_attr(tspans[0], "x", x)
+        anchor = _style_value(node, "text-anchor") or "start"
         scale = math.sqrt(abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])) or 1.0
         angle = math.degrees(math.atan2(matrix[1], matrix[0]))
-        nx, ny = self._norm((x, y))
-        props: Dict[str, str] = OrderedDict(
-            [("left", format_number(nx)), ("top", format_number(ny))]
-        )
-        if abs(angle) > 0.01:
-            props["angle"] = angle_to_native(angle)
-        props["text"] = text
-        props["scale"] = "1"
-        props["fs"] = format_number(font_size * scale / self.height)
+        size = font_size * scale  # in image pixels
         fill = _hex_color(_style_value(node, "fill"))
-        if fill and fill != NATIVE_TEXT_FILL:
-            props["fill"] = fill
-        return Shape("text", 0, props)
+        shapes = []
+        for number, line in enumerate(lines):
+            if not line.strip():
+                continue
+            width = len(line) * font_size * 0.55
+            if anchor == "middle":
+                left = x - width / 2
+            elif anchor == "end":
+                left = x - width
+            else:
+                left = x
+            line_top = top + number * font_size * _LINE_HEIGHT
+            nx, ny = self._norm(geometry.apply(matrix, (left, line_top)))
+            props: Dict[str, str] = OrderedDict(
+                [("left", format_number(nx)), ("top", format_number(ny))]
+            )
+            if abs(angle) > 0.01:
+                props["angle"] = angle_to_native(angle)
+            props["text"] = line
+            props["scale"] = format_number(size / NATIVE_FONT_SIZE)
+            props["fs"] = format_number(NATIVE_FONT_SIZE / self.height)
+            if fill and fill != NATIVE_TEXT_FILL:
+                props["fill"] = fill
+            shapes.append(Shape("text", 0, props))
+        return shapes
 
 
 _SKIPPED_NODES = ("title", "desc", "metadata", "defs")
@@ -593,9 +616,7 @@ def svg_to_native(svg: str, mode: str, card_ids: Optional[Set[str]] = None) -> T
         result.annotations = annotations.toxml()
 
     for node, matrix in labels:
-        shape = converter.label(node, matrix)
-        if shape:
-            result.shapes.append(shape)
+        result.shapes.extend(converter.labels(node, matrix))
     return result
 
 

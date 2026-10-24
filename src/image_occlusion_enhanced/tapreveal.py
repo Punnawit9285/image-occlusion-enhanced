@@ -42,7 +42,7 @@ Plain Python without Anki imports, so that it can be unit tested.
 
 import re
 
-TAP_TO_REVEAL_VERSION = 1
+TAP_TO_REVEAL_VERSION = 2
 TAP_TO_REVEAL_BEGIN = "<!-- Image Occlusion Enhanced: tap to reveal (v%d) -->"
 TAP_TO_REVEAL_END = "<!-- /Image Occlusion Enhanced: tap to reveal -->"
 _TAP_TO_REVEAL_RE = re.compile(
@@ -143,6 +143,9 @@ tap_to_reveal_script = """\
       if (!svg.parentNode) return;
       var box = overlay.getBoundingClientRect();
       var picture = img.getBoundingClientRect();
+      // While the masks are toggled off there is nothing to measure; keep
+      // the last position for when they are shown again.
+      if (!picture.width || !picture.height) return;
       svg.style.left = picture.left - box.left - overlay.clientLeft + "px";
       svg.style.top = picture.top - box.top - overlay.clientTop + "px";
       svg.style.width = picture.width + "px";
@@ -153,6 +156,13 @@ tap_to_reveal_script = """\
     img.style.visibility = "hidden";
     img.addEventListener("load", place);
     if (window.ResizeObserver) new ResizeObserver(place).observe(img);
+    // Older web views do not always report the image's size when the masks
+    // are toggled back on, so look again whenever they are shown or hidden.
+    if (window.MutationObserver) {
+      new MutationObserver(function () {
+        window.requestAnimationFrame(place);
+      }).observe(overlay, {attributes: true, attributeFilter: ["style", "class"]});
+    }
     window.ioTapToRevealPlace = place;
     if (!window.ioTapToRevealListening) {
       window.ioTapToRevealListening = true;

@@ -80,9 +80,21 @@ def test_sample_to_native():
     )
     # labels from both layers, the arrow-less line is left for the image
     texts = groups[0]
-    assert sorted(s.props["text"] for s in texts) == ["Anterior: view", "Knee\njoint"]
+    # one shape per line, as Anki 23.x cannot break lines
+    assert sorted(s.props["text"] for s in texts) == ["Anterior: view", "Knee", "joint"]
     blue = [s for s in texts if s.props["text"] == "Anterior: view"][0]
     assert blue.props["fill"] == "#0000ff"
+    # 20px text: 40px x scale on Anki 23.x, fs x height x scale later on
+    assert float(blue.props["scale"]) == 0.5
+    assert abs(float(blue.props["fs"]) * 600 * 0.5 - 20) < 0.1
+    knee, joint = sorted(
+        (s for s in texts if s.props["text"] in ("Knee", "joint")),
+        key=lambda s: float(s.props["top"]),
+    )
+    assert (
+        abs((float(joint.props["top"]) - float(knee.props["top"])) * 600 - 24 * 1.2)
+        < 0.1
+    )
     assert (
         result.annotations
         and "<line" in result.annotations
@@ -171,7 +183,23 @@ def test_native_to_svg_round_trip():
             for key in ("left", "top"):
                 assert abs(float(a.props[key]) - float(b.props[key])) < 1e-3
     doc = minidom.parseString(back.svg.encode())
-    assert doc.getElementsByTagName("tspan").length == 2  # "Knee\njoint"
+    sizes = {
+        t.firstChild.data: float(t.getAttribute("font-size"))
+        for t in doc.getElementsByTagName("text")
+    }
+    assert abs(sizes["Anterior: view"] - 20) < 0.1 and abs(sizes["Knee"] - 24) < 0.1
+
+
+def test_native_multi_line_text_becomes_tspans():
+    text = (
+        "{{c1::image-occlusion:rect:left=.1:top=.1:width=.1:height=.1:oi=1}}"
+        "{{c0::image-occlusion:text:left=.5:top=.5:text=two\nlines:scale=1:fs=.1}}"
+    )
+    doc = minidom.parseString(native.native_to_svg(text, 100, 100, "u").svg.encode())
+    assert [t.firstChild.data for t in doc.getElementsByTagName("tspan")] == [
+        "two",
+        "lines",
+    ]
 
 
 def test_native_modes():

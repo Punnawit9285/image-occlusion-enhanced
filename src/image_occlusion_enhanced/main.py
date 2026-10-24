@@ -48,6 +48,7 @@ from aqt.utils import tooltip
 from .add import ImgOccAdd
 from .browser_menu import setup_browser_menu
 from .compat import field_names, wrap_method
+from .duplicates import setup_duplicate_check
 from .config import *
 from .consts import *
 from .dialogs import ioCritical, ioHelp
@@ -329,6 +330,7 @@ def setup_main(main_window: "AnkiQt"):
 
     profile_did_open.append(on_profile_loaded)
     setup_media_cleanup()
+    setup_duplicate_check()
 
     # Browser
 

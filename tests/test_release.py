@@ -35,27 +35,42 @@ def test_newest_changelog_entry_is_the_current_version():
 
 
 @pytest.fixture(scope="module")
-def package(tmp_path_factory):
+def packages(tmp_path_factory):
     out = tmp_path_factory.mktemp("build")
     subprocess.run(
         [sys.executable, str(ROOT / "tools" / "build_ankiaddon.py"), "--out", str(out)],
         check=True,
         capture_output=True,
     )
-    (built,) = out.glob("*.ankiaddon")
-    return built
+    built = {p.name: p for p in out.glob("*.ankiaddon")}
+    assert len(built) == 2
+    (ankiweb,) = [p for name, p in built.items() if name.endswith("-ankiweb.ankiaddon")]
+    (github,) = [p for name, p in built.items() if not name.endswith("-ankiweb.ankiaddon")]
+    return github, ankiweb
 
 
-def test_package_contents(package):
+def _read(package):
     with zipfile.ZipFile(package) as archive:
-        names = archive.namelist()
-        manifest = json.loads(archive.read("manifest.json"))
-    assert "__init__.py" in names and "svg-edit/editor/svg-editor.html" in names
-    assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
-    assert not any(n.startswith("/") or ".." in n for n in names)
-    assert manifest["package"] and manifest["name"]
-    assert manifest["human_version"] == release.addon_version()
-    assert "1374772155" in manifest["conflicts"]
+        return archive.namelist(), json.loads(archive.read("manifest.json"))
+
+
+def test_package_contents(packages):
+    for package in packages:
+        names, manifest = _read(package)
+        assert "__init__.py" in names and "svg-edit/editor/svg-editor.html" in names
+        assert "svg-edit/editor/pathseg.js" in names
+        assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
+        assert not any(n.startswith("/") or ".." in n for n in names)
+        assert manifest["name"] and manifest["human_version"] == release.addon_version()
+        assert "1374772155" in manifest["conflicts"]
+
+
+def test_conflicts(packages):
+    github, ankiweb = (_read(p)[1] for p in packages)
+    # Anki would disable a package that lists its own folder while updating it
+    assert github["package"] not in github["conflicts"]
+    # installing from AnkiWeb switches off a copy installed from GitHub
+    assert github["package"] in ankiweb["conflicts"]
 
 
 def _python_files():
