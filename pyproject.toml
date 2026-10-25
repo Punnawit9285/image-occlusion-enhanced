@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "image-occlusion-enhanced"
-version = "v1.4.0"
+version = "v2.1.0"
 description = "Image Occlusion Enhanced Anki Add-on"
 authors = ["Glutanimate <glutanimate.com/contact>"]
 license = "AGPL-3.0-or-later-with-additional-terms"
@@ -51,3 +51,19 @@ exclude = [
     "src/image_occlusion_enhanced/svg-edit",
 ]
 enableTypeIgnoreComments = true
+
+[tool.ruff]
+extend-exclude = [
+    "src/image_occlusion_enhanced/_vendor",
+    "src/image_occlusion_enhanced/svg-edit",
+    "tools/io2-svg-fix",
+]
+
+[tool.ruff.lint]
+# syntax errors and pyflakes; the add-on's modules share their names
+# through star imports, which pyflakes cannot follow
+select = ["E9", "F"]
+ignore = ["F403", "F405"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

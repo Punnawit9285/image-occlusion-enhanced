@@ -186,13 +186,34 @@ def begin_undo_group(col, label: str) -> Optional[int]:
     return None
 
 
-def end_undo_group(col, token: Optional[int]) -> None:
-    """Merge everything written since begin_undo_group() into that step."""
+def end_undo_group(col, token: Optional[int]):
+    """Merge everything written since begin_undo_group() into that step.
+
+    Returns what changed (OpChanges) where Anki reports it, else None.
+    """
+    changes = None
     if token is not None and hasattr(col, "merge_undo_entries"):
         try:
-            col.merge_undo_entries(token)
+            changes = col.merge_undo_entries(token)
         except Exception as e:
             logger.warning("could not merge undo entries: %s", e)
+    refresh_undo_menu()
+    return changes
+
+
+def notify_changes(changes, handler=None) -> None:
+    """Tell Anki's windows that the collection changed, so that the reviewer,
+    the browser and open editors show the new state, as after any of Anki's
+    own operations. Falls back to a full refresh where that is unavailable.
+    """
+    try:
+        from aqt.gui_hooks import operation_did_execute
+    except ImportError:
+        operation_did_execute = None
+    if changes is None or operation_did_execute is None:
+        refresh_main_window()
+        return
+    operation_did_execute(changes, handler)
     refresh_undo_menu()
 
 

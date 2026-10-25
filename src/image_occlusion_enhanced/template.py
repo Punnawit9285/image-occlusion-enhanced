@@ -45,8 +45,23 @@ from .compat import (
     notetype_by_name,
     save_notetype,
 )
+from .tapreveal import TAP_TO_REVEAL_VERSION, with_tap_to_reveal  # noqa: F401
 
 # DEFAULT CARD TEMPLATES
+
+# Field names the templates refer to
+_template_fields = {
+    "que": IO_FLDS["qm"],
+    "ans": IO_FLDS["am"],
+    "svg": IO_FLDS["om"],
+    "src_img": IO_FLDS["im"],
+    "header": IO_FLDS["hd"],
+    "footer": IO_FLDS["ft"],
+    "remarks": IO_FLDS["rk"],
+    "sources": IO_FLDS["sc"],
+    "extraone": IO_FLDS["e1"],
+    "extratwo": IO_FLDS["e2"],
+}
 
 iocard_front = """\
 {{#%(src_img)s}}
@@ -72,18 +87,7 @@ if (mask === null || mask.complete) {
 }
 </script>
 {{/%(src_img)s}}
-""" % {
-    "que": IO_FLDS["qm"],
-    "ans": IO_FLDS["am"],
-    "svg": IO_FLDS["om"],
-    "src_img": IO_FLDS["im"],
-    "header": IO_FLDS["hd"],
-    "footer": IO_FLDS["ft"],
-    "remarks": IO_FLDS["rk"],
-    "sources": IO_FLDS["sc"],
-    "extraone": IO_FLDS["e1"],
-    "extratwo": IO_FLDS["e2"],
-}
+""" % _template_fields
 
 iocard_back = """\
 {{#%(src_img)s}}
@@ -143,18 +147,7 @@ if (mask === null || mask.complete) {
 }
 </script>
 {{/%(src_img)s}}
-""" % {
-    "que": IO_FLDS["qm"],
-    "ans": IO_FLDS["am"],
-    "svg": IO_FLDS["om"],
-    "src_img": IO_FLDS["im"],
-    "header": IO_FLDS["hd"],
-    "footer": IO_FLDS["ft"],
-    "remarks": IO_FLDS["rk"],
-    "sources": IO_FLDS["sc"],
-    "extraone": IO_FLDS["e1"],
-    "extratwo": IO_FLDS["e2"],
-}
+""" % _template_fields
 
 iocard_css = """\
 /* GENERAL CARD STYLE */
@@ -248,6 +241,20 @@ iocard_css = """\
 }
 """
 
+def install_tap_to_reveal(col, io_model) -> bool:
+    """Add or update the script in both templates; whether anything changed"""
+    changed = False
+    for template in io_model["tmpls"]:
+        for key in ("qfmt", "afmt"):
+            updated = with_tap_to_reveal(template[key])
+            if updated != template[key]:
+                template[key] = updated
+                changed = True
+    if changed:
+        save_notetype(col, io_model)
+    return changed
+
+
 # INCREMENTAL UPDATES
 
 html_overlay_onload = """\
@@ -293,8 +300,8 @@ def add_io_model(col):
         add_field(col, io_model, fld)
     # Add template
     template = new_template(col, IO_CARD_NAME)
-    template["qfmt"] = iocard_front
-    template["afmt"] = iocard_back
+    template["qfmt"] = with_tap_to_reveal(iocard_front)
+    template["afmt"] = with_tap_to_reveal(iocard_back)
     io_model["css"] = iocard_css
     io_model["sortf"] = 1  # set sortfield to header
     add_template(col, io_model, template)
@@ -305,8 +312,8 @@ def reset_template(col):
     print("Resetting IO Enhanced card template to defaults")
     io_model = notetype_by_name(col, IO_MODEL_NAME)
     template = io_model["tmpls"][0]
-    template["qfmt"] = iocard_front
-    template["afmt"] = iocard_back
+    template["qfmt"] = with_tap_to_reveal(iocard_front)
+    template["afmt"] = with_tap_to_reveal(iocard_back)
     io_model["css"] = iocard_css
     save_notetype(col, io_model)
     return io_model

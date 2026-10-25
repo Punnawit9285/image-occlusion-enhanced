@@ -40,8 +40,6 @@ import urllib.request
 from typing import Optional, Tuple
 from xml.dom import minidom
 
-from aqt import mw
-
 from ._vendor import imghdr
 from ._vendor.imagesize import imagesize
 from .consts import SUPPORTED_BITMAP_FORMATS
@@ -74,9 +72,14 @@ def path_to_url(path: str) -> str:
 
 
 def path_to_img_element(path: str) -> str:
-    """Return HTML img element for given path"""
+    """Return HTML img element for given path.
+
+    Written the way Anki's editor writes it. Anki's editor rewrites
+    '<img ... />' as '<img ...>' and saves the note whenever it shows one, so
+    the old form added an "Update Note" step to Edit > Undo after every edit.
+    """
     fname = os.path.split(path)[1]
-    return '<img src="%s" />' % fname
+    return '<img src="%s">' % fname
 
 
 def img_element_to_path(img_element: str, nameonly: bool = False) -> Optional[str]:
@@ -88,6 +91,9 @@ def img_element_to_path(img_element: str, nameonly: bool = False) -> Optional[st
         return None
     if nameonly:
         return fname.group(2)
+    # imported here so that the rest of this module works without Anki's GUI
+    from aqt import mw
+
     fpath = os.path.join(mw.col.media.dir(), fname.group(2))
     if not os.path.isfile(fpath):
         return None

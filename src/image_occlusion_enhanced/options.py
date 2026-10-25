@@ -43,6 +43,7 @@ from aqt.qt import (
     QDialogButtonBox,
     QFont,
     QFontComboBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QIcon,
@@ -52,14 +53,18 @@ from aqt.qt import (
     QPen,
     QPixmap,
     QPushButton,
+    QScrollArea,
     QSize,
     QSpinBox,
     Qt,
     QVBoxLayout,
+    QWidget,
 )
 
+from . import ocr
 from .compat import field_names, rename_field, showInfo
 from .config import *
+from .editor import open_editors
 from .lang import _
 from .logger import logger
 from .theme import isNightMode, qtStylesheet
@@ -296,6 +301,32 @@ class ImgOccOpts(QDialog):
         grid.addWidget(self.key_grabbed, row + 5, 2, 1, 1)
         grid.addWidget(key_grab_btn, row + 5, 3, 1, 3)
 
+        # Text recognition, for the editor's Mask Text button. Kept per
+        # device, as programs are installed in different places.
+        ocr_heading = QLabel(_("<b>Text Recognition</b> (for <i>Mask Text</i>)"))
+        tesseract_label = QLabel(_("Tesseract program:"))
+        self.tesseract_path = QLineEdit(self.lconf.get("ocr_tesseract", ""))
+        self.tesseract_path.setPlaceholderText(_("Found automatically"))
+        tesseract_btn = QPushButton(_("Browse..."), self)
+        tesseract_btn.clicked.connect(self.chooseTesseract)
+        languages_label = QLabel(_("Tesseract languages:"))
+        self.ocr_languages = QLineEdit(self.lconf.get("ocr_languages", ""))
+        self.ocr_languages.setPlaceholderText(_("eng (e.g. eng+deu for two)"))
+        self.ocr_status = QLabel()
+        self.ocr_status.setWordWrap(True)
+        self.ocr_status.setProperty("ioMuted", True)
+        self.tesseract_path.textChanged.connect(self.updateOcrStatus)
+        self.updateOcrStatus()
+
+        grid.addWidget(self.create_horizontal_rule(), row + 6, 0, 1, 6)
+        grid.addWidget(ocr_heading, row + 7, 0, 1, 6)
+        grid.addWidget(tesseract_label, row + 8, 0, 1, 2)
+        grid.addWidget(self.tesseract_path, row + 8, 2, 1, 3)
+        grid.addWidget(tesseract_btn, row + 8, 5, 1, 1)
+        grid.addWidget(languages_label, row + 9, 0, 1, 2)
+        grid.addWidget(self.ocr_languages, row + 9, 2, 1, 4)
+        grid.addWidget(self.ocr_status, row + 10, 0, 1, 6)
+
         # Main button box
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -307,15 +338,42 @@ class ImgOccOpts(QDialog):
         button_box.accepted.connect(self.onAccept)
         button_box.rejected.connect(self.onReject)
 
-        # Main layout
+        # Main layout. The settings scroll rather than being squeezed when
+        # the screen is too small for all of them.
+        settings = QWidget()
+        settings.setLayout(grid)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(settings)
         l_main = QVBoxLayout()
-        l_main.addLayout(grid)
+        l_main.addWidget(scroll)
         l_main.addWidget(button_box)
         self.setLayout(l_main)
+        self._settings = settings
+        self._sized = False
         self.setMinimumWidth(800)
-        self.setMinimumHeight(640)
+        self.setMinimumHeight(480)
         self.setWindowTitle(_("Image Occlusion Enhanced Options"))
         self.setStyleSheet(qtStylesheet(isNightMode()))
+
+    def showEvent(self, event):
+        # Fit the window to its settings once they are styled, which is only
+        # the case once the dialog is shown; at most 90% of the screen.
+        if not self._sized:
+            self._sized = True
+            margins = self.layout().contentsMargins()
+            wanted = (
+                self._settings.sizeHint().height()
+                + self.height()
+                - self._settings.parentWidget().height()
+                + margins.top()
+            )
+            screen = self.screen()
+            if screen is not None:
+                wanted = min(wanted, int(screen.availableGeometry().height() * 0.9))
+            self.resize(max(self.width(), 820), max(480, wanted))
+        super().showEvent(event)
 
     def create_horizontal_rule(self):
         """
@@ -325,6 +383,30 @@ class ImgOccOpts(QDialog):
         frame.setFrameShape(QFrame.Shape.HLine)
         frame.setFrameShadow(QFrame.Shadow.Sunken)
         return frame
+
+    def chooseTesseract(self):
+        path = QFileDialog.getOpenFileName(
+            self, _("Choose the Tesseract program"), self.tesseract_path.text()
+        )[0]
+        if path:
+            self.tesseract_path.setText(path)
+
+    def updateOcrStatus(self):
+        configured = self.tesseract_path.text().strip()
+        engine = ocr.available_engine(configured)
+        if configured and not ocr.find_tesseract(configured):
+            text = _("No program at that location.")
+        elif engine is None:
+            text = _(
+                "Nothing is available yet: install Tesseract to use Mask Text."
+            )
+        elif engine.name == "Tesseract":
+            text = _("Mask Text uses Tesseract at {path}.").format(
+                path=ocr.find_tesseract(configured)
+            )
+        else:
+            text = _("Mask Text uses {engine}.").format(engine=engine.name)
+        self.ocr_status.setText(text)
 
     def updateHotkey(self, combo=None):
         """Update hotkey label and attribute"""
@@ -380,6 +462,8 @@ class ImgOccOpts(QDialog):
         self.ofill = self.sconf_dflt["ofill"]
         self.qfill = self.sconf_dflt["qfill"]
         self.scol = self.sconf_dflt["scol"]
+        self.tesseract_path.setText(self.lconf_dflt["ocr_tesseract"])
+        self.ocr_languages.setText(self.lconf_dflt["ocr_languages"])
 
     def renameFields(self):
         """Check for modified names and rename fields accordingly"""
@@ -428,8 +512,9 @@ class ImgOccOpts(QDialog):
         except AnkiError:
             print("Field rename action aborted")
             return
-        if modified and hasattr(mw, "ImgOccEdit"):
-            self.resetIoEditor(flds)
+        if modified:
+            for editor in list(open_editors):
+                self.resetIoEditor(editor, flds)
         io_conf = getColConfig()
         io_conf["ofill"] = self.ofill
         io_conf["qfill"] = self.qfill
@@ -440,13 +525,12 @@ class ImgOccOpts(QDialog):
         io_conf["skip"] = self.skipped.text().split(",")
         setColConfig(io_conf)
         mw.pm.profile["imgocc"]["hotkey"] = self.hotkey
+        mw.pm.profile["imgocc"]["ocr_tesseract"] = self.tesseract_path.text().strip()
+        mw.pm.profile["imgocc"]["ocr_languages"] = self.ocr_languages.text().strip()
         self.close()
 
-    def resetIoEditor(self, flds):
-        """Reset existing instance of IO Editor"""
-        # TODO: either delete method or refactor into method that updates running
-        # instance of I/O (we no longer reuse old ImgOccEdit instances)
-        dialog = mw.ImgOccEdit
+    def resetIoEditor(self, dialog, flds):
+        """Update an open IO Editor to renamed fields"""
         loadConfig(dialog)
         dialog.resetFields()
         dialog.setupFields(flds)

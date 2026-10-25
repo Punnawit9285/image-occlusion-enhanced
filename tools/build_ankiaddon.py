@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Package the add-on as an .ankiaddon file, ready to attach to a GitHub release.
+Package the add-on as .ankiaddon files: one to attach to a GitHub release and
+one to upload to AnkiWeb.
 
-    python3 tools/build_ankiaddon.py [--version 2.0.0] [--out build]
+    python3 tools/build_ankiaddon.py [--version 2.1.0] [--out build]
 
 An .ankiaddon is a zip of the add-on folder's contents plus a manifest.json
 telling Anki which folder to install it into. Anki's own Tools > Add-ons >
@@ -15,6 +16,12 @@ invite Anki to "update" these fixes away again. The AnkiWeb version is listed
 as a conflict instead: Anki disables it when this package is installed. Notes,
 the note type and the add-on's settings live in the collection and profile,
 not in the folder, so nothing is lost by switching.
+
+The AnkiWeb package is the same, except that its manifest lists the GitHub
+package's folder as a conflict too. AnkiWeb installs an add-on under its
+numeric ID and only reads "conflicts" from the manifest, so installing it
+switches off a copy installed from GitHub. The GitHub package must not list
+its own folder, or Anki would disable it while updating it.
 """
 
 import argparse
@@ -31,8 +38,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "src" / "image_occlusion_enhanced"
 
 PACKAGE = "image_occlusion_enhanced_2"
+# Shown in Anki's add-on list. Marked as a continuation of the original
+# add-on, as its license asks of modified versions.
+NAME = "Image Occlusion Enhanced (Continued)"
 HOMEPAGE = "https://github.com/Punnawit9285/image-occlusion-enhanced"
-CONFLICTS = ["1374772155", "image_occlusion_enhanced"]
+# The original add-on, from AnkiWeb and from its own GitHub releases
+ORIGINAL = ["1374772155", "image_occlusion_enhanced"]
+# This version's AnkiWeb ID, once it has one; the GitHub package then
+# switches off a copy installed from AnkiWeb as well
+ANKIWEB_ID = ""
+CONFLICTS = {
+    "github": ORIGINAL + ([ANKIWEB_ID] if ANKIWEB_ID else []),
+    "ankiweb": ORIGINAL + [PACKAGE],
+}
 # Anki 2.1.50; the compatibility layer covers everything newer
 MIN_POINT_VERSION = 50
 
@@ -81,6 +99,8 @@ def main() -> None:
     parser.add_argument("--version", help="version to stamp (default: _version.py)")
     parser.add_argument("--out", default=str(ROOT / "build"), help="output folder")
     args = parser.parse_args()
+    out_dir = pathlib.Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     version = (args.version or read_version()).lstrip("v")
     files = list(shipped_files())
@@ -88,28 +108,25 @@ def main() -> None:
         sys.exit("no __init__.py at the add-on root - wrong source folder?")
     check_sources(files)
 
-    manifest = {
-        "package": PACKAGE,
-        "name": "Image Occlusion Enhanced",
-        "human_version": version,
-        "author": "Glutanimate, Punnawit9285",
-        "homepage": HOMEPAGE,
-        "conflicts": CONFLICTS,
-        "min_point_version": MIN_POINT_VERSION,
-        "mod": int(time.time()),
-    }
-
-    out_dir = pathlib.Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / ("image-occlusion-enhanced-%s.ankiaddon" % version)
-
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, indent=4) + "\n")
-        for path, relative in files:
-            archive.write(path, relative.as_posix())
-
-    size_kb = target.stat().st_size / 1024
-    print("built %s (%d files, %.0f KB)" % (target, len(files) + 1, size_kb))
+    for target, suffix in (("github", ""), ("ankiweb", "-ankiweb")):
+        manifest = {
+            "package": PACKAGE,
+            "name": NAME,
+            "human_version": version,
+            "author": "Glutanimate, Punnawit9285",
+            "homepage": HOMEPAGE,
+            "conflicts": CONFLICTS[target],
+            "min_point_version": MIN_POINT_VERSION,
+            "mod": int(time.time()),
+        }
+        name = "image-occlusion-enhanced-%s%s.ankiaddon" % (version, suffix)
+        target_path = out_dir / name
+        with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest, indent=4) + "\n")
+            for path, relative in files:
+                archive.write(path, relative.as_posix())
+        size_kb = target_path.stat().st_size / 1024
+        print("built %s (%d files, %.0f KB)" % (target_path, len(files) + 1, size_kb))
 
 
 if __name__ == "__main__":

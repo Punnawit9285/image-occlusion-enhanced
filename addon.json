@@ -1,14 +1,17 @@
 {
-    "display_name": "Image Occlusion Enhanced",
+    "display_name": "Image Occlusion Enhanced (Continued)",
     "module_name": "image_occlusion_enhanced",
     "repo_name": "image-occlusion-enhanced",
-    "ankiweb_id": "1374772155",
-    "author": "Glutanimate",
-    "contact": "https://glutanimate.com",
-    "homepage": "https://github.com/glutanimate/image-occlusion-enhanced",
+    "ankiweb_id": "",
+    "author": "Glutanimate, Punnawit9285",
+    "contact": "https://github.com/Punnawit9285/image-occlusion-enhanced/issues",
+    "homepage": "https://github.com/Punnawit9285/image-occlusion-enhanced",
     "copyright_start": 2016,
     "tags": "image-occlusion editor",
-    "conflicts": [],
+    "conflicts": [
+        "1374772155",
+        "image_occlusion_enhanced"
+    ],
     "targets": [
         "anki21"
     ],

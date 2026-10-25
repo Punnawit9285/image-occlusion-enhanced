@@ -45,13 +45,9 @@ from .lang import _
 
 io_link_wiki = "https://github.com/glutanimate/image-occlusion-enhanced/wiki"
 io_link_tut = "https://www.youtube.com/playlist?list=PL3MozITKTz5YFHDGB19ypxcYfJ1ITk_6o"
-io_link_thread = (
-    "https://anki.tenderapp.com/discussions/add-ons/"
-    "8295-image-occlusion-enhanced-official-thread"
-)
-io_link_obsolete_aa = (
-    "https://github.com/glutanimate/image-occlusion-enhanced/wiki/ADD_LINK_HERE"
-)
+# The forum that used to host the support thread has closed down, so
+# problems are reported where this version is maintained.
+io_link_issues = "https://github.com/Punnawit9285/image-occlusion-enhanced/issues"
 
 # Predefiend dialog messages
 
@@ -65,6 +61,13 @@ dialog_msg["add"] = _(
 <li>(Optional): Fill out additional information about your cards by switching to the <em>Fields</em> tab</li>
 <li>Click on one of the <em>Add Cards</em> buttons at the bottom of the window to add the cards to your collection</li>
 </ol>
+<p><strong>Card Types</strong></p>
+<ul>
+<li><em>Hide All, Guess One</em>: a card for every mask. All masks are shown on the front, and the answer uncovers the one the card asks about.</li>
+<li><em>Hide One, Guess One</em>: a card for every mask. The front only hides the mask the card asks about, so the rest of the image can serve as a hint.</li>
+<li><em>Hide All, Guess All</em>: a single card for the whole image. Every mask is asked about on the front, and the answer uncovers them all.</li>
+</ul>
+<p>While reviewing, tap or click a mask to uncover just that one, and again to cover it.</p>
 <p><strong>Drawing Custom Labels</strong></p>
 <ol>
 <li>Draw up the layers sidepanel by clicking on the <em>Layers</em> button at the right edge of the editor</li>
@@ -83,20 +86,22 @@ dialog_msg["add"] = _(
 <ul>
 <li><a href="{io_link_wiki}">Image Occlusion Enhanced Wiki</a></li>
 <li><a href="{io_link_tut}">YouTube Tutorials</a></li>
-<li><a href="{io_link_thread}">Official support thread</a></li>
+<li><a href="{io_link_issues}">Report a problem or suggest an idea</a></li>
 </ul>
 """
 ).format(
-    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_thread=io_link_thread
+    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_issues=io_link_issues
 )
 
 dialog_msg["edit"] = _(
     """
 <b>Instructions for editing</b>:
-<br><br> Each mask shape represents a card.
+<br><br> Each mask shape represents a card, unless the image uses
+<i>Hide All, Guess All</i>, which makes a single card for all of them.
 Removing any of the existing shapes will remove the corresponding card.
 New shapes will generate new cards. You can change the occlusion type
-by using the dropdown box on the left.<br><br>If you click on the
+by using the dropdown box on the left. Switching to or from
+<i>Hide All, Guess All</i> replaces the existing cards.<br><br>If you click on the
 <i>Add new cards</i> button a completely new batch of cards will be
 generated, leaving your originals untouched.<br><br>
 <b>Actions performed in Image Occlusion's <i>Editing Mode</i> cannot be
@@ -124,7 +129,7 @@ dialog_msg["main"] = _(
 <h2>Help and Support</h2>
 <p><a href="{io_link_wiki}">Image Occlusion Enhanced Wiki</a></p>
 <p><a href="{io_link_tut}">Official Video Tutorial Series</a></p>
-<p><a href="{io_link_thread}">Support Thread</a></p>
+<p><a href="{io_link_issues}">Report a problem or suggest an idea</a></p>
 <h2>Credits and License</h2>
 <p style="font-size:12pt;"><em>Copyright © 2012-2015
 <a href="https://github.com/tmbb">Tiago Barroso</a></em></p>
@@ -136,16 +141,17 @@ dialog_msg["main"] = _(
 <p>Third-party open-source software shipped with <em>Image Occlusion Enhanced</em>:</p>
 <ul><li><p><a href="https://github.com/SVG-Edit/svgedit">SVG Edit</a> 2.6.
 Copyright (c) 2009-2012 SVG-edit authors. Licensed under the MIT license</a></p></li>
-<li><p><a href="http://www.pythonware.com/products/pil/">Python Imaging Library</a>
-(PIL) 1.1.7. Copyright (c) 1997-2011 by Secret Labs AB, Copyright (c) 1995-2011 by Fredrik
-Lundh. Licensed under the <a href="http://www.pythonware.com/products/pil/license.htm"
-PIL license</a></p></li>
+<li><p>imghdr from the <a href="https://www.python.org">Python</a> standard library.
+Copyright (c) 2001-2018 Python Software Foundation. Licensed under the Python Software
+Foundation License.</p></li>
 <li><p><a href="https://github.com/shibukawa/imagesize_py">imagesize.py</a> v0.7.1.
 Copyright (c) 2016 Yoshiki Shibukawa. Licensed under the MIT license.</p></li>
+<li><p><a href="https://github.com/progers/pathseg">pathseg</a> 1.2.1.
+Copyright (c) 2015 The Chromium Authors. Licensed under a BSD-style license.</p></li>
 </ul>
 """
 ).format(
-    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_thread=io_link_thread
+    io_link_wiki=io_link_wiki, io_link_tut=io_link_tut, io_link_issues=io_link_issues
 )
 
 dialog_msg["obsolete_aa"] = _(
@@ -154,12 +160,35 @@ dialog_msg["obsolete_aa"] = _(
 The "Hide All, Reveal All" image occlusion mode used by this card
 is no longer supported by the add-on. You can still review it just like
 you would with any other card, but if you proceed with editing the note,
-it will automatically be converted to the "Hide All, Guess One" type.<br><br>
-For more information on why this occlusion mode was removed and how to
-replicate its functionality please see here:<br><br>
-<a href="{io_link_obsolete_aa}">Wiki: Hide All, Reveal All</a>
+it will automatically be converted to the "Hide All, Guess One" type,
+unless you choose another type below.<br><br>
+"Hide All, Guess One" also hides every label on the front, but only reveals
+the one asked about on the back; you can tap any other mask while reviewing
+to uncover it as well. "Hide All, Guess All" makes a single card that
+reveals everything at once.
 """
-).format(io_link_obsolete_aa=io_link_obsolete_aa)
+)
+
+OCR_INSTALL = _(
+    """Text recognition uses Tesseract wherever it is installed, and otherwise
+the recognition built into macOS and Windows. To install Tesseract:
+<ul>
+<li>macOS: <code>brew install tesseract</code>
+(<a href="https://brew.sh">Homebrew</a>)</li>
+<li>Windows: the installer from
+<a href="https://github.com/UB-Mannheim/tesseract/wiki">UB Mannheim</a></li>
+<li>Linux: your distribution's <code>tesseract-ocr</code> package</li>
+</ul>
+If Anki does not find it afterwards, enter its location under <i>Tools</i>
+&rarr; <i>Image Occlusion Enhanced Options</i>. Languages other than
+English need their Tesseract language data, and the language codes
+entered there, such as <code>eng+deu</code>."""
+)
+
+dialog_msg["ocr_missing"] = (
+    _("<b>No text recognition is available on this computer.</b><br><br>")
+    + OCR_INSTALL
+)
 
 dialog_msg["model_error"] = _(
     "<b>Error</b>: Image Occlusion note type "

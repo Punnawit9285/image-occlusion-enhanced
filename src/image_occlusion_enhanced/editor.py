@@ -41,6 +41,7 @@ import re
 import urllib.parse
 import urllib.request
 import uuid
+import weakref
 from typing import List, Optional
 
 from anki.config import Config
@@ -1163,11 +1164,17 @@ class FormattingToolbar(QWidget):
         return QIcon(pixmap)
 
 
+# Editor windows currently open, e.g. so that the options are not changed
+# underneath one
+open_editors: "weakref.WeakSet[ImgOccEdit]" = weakref.WeakSet()
+
+
 class ImgOccEdit(QDialog):
     """Main Image Occlusion Editor dialog"""
 
     def __init__(self, imgoccadd, parent):
         QDialog.__init__(self)
+        open_editors.add(self)
         if hasattr(mw, "setupDialogGC"):
             mw.setupDialogGC(self)
         self.setWindowFlags(Qt.WindowType.Window)
@@ -1191,6 +1198,7 @@ class ImgOccEdit(QDialog):
         self._on_close()
 
     def _on_close(self):
+        open_editors.discard(self)
         if mw.pm.profile is not None:
             self.deckChooser.cleanup()
             saveGeom(self, "imgoccedit")
@@ -1343,10 +1351,15 @@ class ImgOccEdit(QDialog):
         image_btn.setIconSize(QSize(16, 16))
         image_btn.setAutoDefault(False)
 
+        text_btn = QPushButton(_("Mask &Text"))
+        text_btn.clicked.connect(self.maskText)
+        text_btn.setAutoDefault(False)
+
         self.occl_tp_select = QComboBox()
         self.occl_tp_select.addItem(_("Don't Change"), "Don't Change")
         self.occl_tp_select.addItem(_("Hide All, Guess One"), "Hide All, Guess One")
         self.occl_tp_select.addItem(_("Hide One, Guess One"), "Hide One, Guess One")
+        self.occl_tp_select.addItem(_("Hide All, Guess All"), "Hide All, Guess All")
 
         self.edit_btn = button_box.addButton(
             _("&Edit Cards"), QDialogButtonBox.ButtonRole.ActionRole
@@ -1359,6 +1372,9 @@ class ImgOccEdit(QDialog):
         )
         self.oa_btn = button_box.addButton(
             _("Hide &One, Guess One"), QDialogButtonBox.ButtonRole.ActionRole
+        )
+        self.ag_btn = button_box.addButton(
+            _("Hide All, Guess A&ll"), QDialogButtonBox.ButtonRole.ActionRole
         )
         help_button = button_box.addButton(
             _("&?"), QDialogButtonBox.ButtonRole.ActionRole
@@ -1383,24 +1399,39 @@ class ImgOccEdit(QDialog):
             "Generate cards with overlapping information, where one<br>"
             "label is hidden on the front and revealed on the back"
         )
+        ag_tt = _(
+            "Generate a single card for the whole image, where all"
+            "<br>labels are hidden and asked for on the front and"
+            " revealed on the back"
+        )
         close_tt = _("Close Image Occlusion Editor without generating cards")
 
         image_btn.setToolTip(image_tt)
+        text_btn.setToolTip(
+            _(
+                "Find the text labels in the image and cover each with a mask."
+                "<br>Labels that already have a mask are left alone."
+            )
+        )
         self.edit_btn.setToolTip(edit_tt)
         self.new_btn.setToolTip(new_tt)
         self.ao_btn.setToolTip(ao_tt)
         self.oa_btn.setToolTip(oa_tt)
+        self.ag_btn.setToolTip(ag_tt)
         close_button.setToolTip(close_tt)
         self.occl_tp_select.setItemData(0, dc_tt, Qt.ItemDataRole.ToolTipRole)
         self.occl_tp_select.setItemData(1, ao_tt, Qt.ItemDataRole.ToolTipRole)
         self.occl_tp_select.setItemData(2, oa_tt, Qt.ItemDataRole.ToolTipRole)
+        self.occl_tp_select.setItemData(3, ag_tt, Qt.ItemDataRole.ToolTipRole)
 
         for btn in [
             image_btn,
+            text_btn,
             self.edit_btn,
             self.new_btn,
             self.ao_btn,
             self.oa_btn,
+            self.ag_btn,
             help_button,
             close_button,
         ]:
@@ -1414,6 +1445,7 @@ class ImgOccEdit(QDialog):
         self.new_btn.clicked.connect(self.new)
         self.ao_btn.clicked.connect(self.addAO)
         self.oa_btn.clicked.connect(self.addOA)
+        self.ag_btn.clicked.connect(self.addAG)
         help_button.clicked.connect(self.onHelp)
         close_button.clicked.connect(self.close)
 
@@ -1424,7 +1456,8 @@ class ImgOccEdit(QDialog):
         bottom_hbox.setContentsMargins(14, 10, 14, 12)
         bottom_hbox.setSpacing(8)
         bottom_hbox.addWidget(image_btn)
-        bottom_hbox.insertStretch(1, stretch=1)
+        bottom_hbox.addWidget(text_btn)
+        bottom_hbox.insertStretch(2, stretch=1)
         bottom_hbox.addWidget(self.bottom_label)
         bottom_hbox.addWidget(self.occl_tp_select)
         bottom_hbox.addWidget(button_box)
@@ -1543,6 +1576,9 @@ class ImgOccEdit(QDialog):
         self.imgoccadd.onChangeImage()
         self.fitImageCanvas()
 
+    def maskText(self):
+        self.imgoccadd.onMaskText()
+
     def defaultAction(self, close):
         if self.mode == "add":
             self.addAO(close)
@@ -1554,6 +1590,9 @@ class ImgOccEdit(QDialog):
 
     def addOA(self, close=False):
         self.imgoccadd.onAddNotesButton("oa", close)
+
+    def addAG(self, close=False):
+        self.imgoccadd.onAddNotesButton("ag", close)
 
     def new(self, close=False):
         choice = self.occl_tp_select.currentData()
@@ -1619,7 +1658,7 @@ class ImgOccEdit(QDialog):
     def switchToMode(self, mode):
         """Toggle between add and edit layouts"""
         hide_on_add = [self.occl_tp_select, self.edit_btn, self.new_btn]
-        hide_on_edit = [self.ao_btn, self.oa_btn]
+        hide_on_edit = [self.ao_btn, self.oa_btn, self.ag_btn]
         self.mode = mode
         for i in list(self.tedit.values()):
             i.show()
@@ -1660,7 +1699,8 @@ class ImgOccEdit(QDialog):
         after an unpolish/polish cycle, so the style has to be refreshed by
         hand rather than just setting the property.
         """
-        for btn in (self.ao_btn, self.oa_btn, self.edit_btn, self.new_btn):
+        buttons = (self.ao_btn, self.oa_btn, self.ag_btn, self.edit_btn, self.new_btn)
+        for btn in buttons:
             btn.setProperty("ioPrimary", btn is primary)
             btn.style().unpolish(btn)
             btn.style().polish(btn)

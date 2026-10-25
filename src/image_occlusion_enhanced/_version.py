@@ -33,4 +33,4 @@
 Version information
 """
 
-__version__ = "v2.0.1"
+__version__ = "v2.1.0"

@@ -35,7 +35,6 @@ Generates the actual IO notes and writes them to
 the collection.
 """
 
-import re
 import uuid
 from typing import Union
 from xml.dom import minidom
@@ -57,7 +56,19 @@ from .config import *
 from .dialogs import ioAskUser
 from .lang import _, ngettext
 from .logger import logger
-from .utils import path_to_img_element
+from .masks import (
+    HIDE_ALL_GUESS_ALL,
+    HIDE_ALL_GUESS_ONE,
+    HIDE_ONE_GUESS_ONE,
+    NOTE_ID_RE,
+    WHOLE_IMAGE_NOTE_NR,
+    build_mask,
+    layer_nodes,
+    mask_file_name,
+    new_revision,
+)
+from .mediacleanup import schedule as schedule_media_cleanup
+from .utils import img_element_to_path, path_to_img_element
 
 # Explanation of some of the variables:
 #
@@ -68,17 +79,21 @@ from .utils import path_to_img_element
 #               the note_id
 # occl_id:      Combination of uniq_id + occl_tp - unique identifier shared
 #               by all notes created in one IO session
-# note_nr:      Third part of the note_id
+# note_nr:      Third part of the note_id. Hide All, Guess All makes a single
+#               note per image, numbered 0, while its masks are numbered
+#               from 1 like those of the other modes
 
 
 def genByKey(key, old_occl_tp=None):
     """Get note generator based on occl_tp/user input"""
     if key in ["Don't Change"]:
         return genByKey(old_occl_tp, None)
-    elif key in ["ao", "Hide All, Guess One"]:
+    elif key in [HIDE_ALL_GUESS_ONE, "Hide All, Guess One"]:
         return IoGenHideAllRevealOne
-    elif key in ["oa", "Hide One, Guess One"]:
+    elif key in [HIDE_ONE_GUESS_ONE, "Hide One, Guess One"]:
         return IoGenHideOneRevealAll
+    elif key in [HIDE_ALL_GUESS_ALL, "Hide All, Guess All"]:
+        return IoGenHideAllGuessAll
     else:
         return IoGenHideAllRevealOne
 
@@ -88,10 +103,10 @@ class ImgOccNoteGenerator(object):
 
     stripattr = ["opacity", "stroke-opacity", "fill-opacity"]
 
-    # Note IDs look like "<uuid4 hex>-<ao|oa|aa>-<number>"; see the module
-    # docstring above. Used to tell a <text> that already backs a note from
-    # one the user has just drawn.
-    node_id_re = re.compile(r"^.+-(?:ao|oa|aa)-\d+$")
+    # Note IDs look like "<uuid4 hex>-<mode>-<number>"; see the explanation
+    # above. Used to tell a <text> that already backs a note from one the
+    # user has just drawn.
+    node_id_re = NOTE_ID_RE
 
     def __init__(self, ed, svg, image_path, opref, tags, fields, did):
         self.ed = ed
@@ -102,7 +117,15 @@ class ImgOccNoteGenerator(object):
         self.fields = fields
         self.did = did
         self.qfill = "#" + getColConfig()["qfill"]
-        self._media_path = mw.col.media.dir()
+        # all mask files written by this generator share one revision
+        self.revision = new_revision()
+        self._shared_answer = None
+        # mask files the notes used before an edit, and the ones written now;
+        # whichever end up unused (e.g. after an undo) are cleaned up later
+        self._previous_media = set()
+        self._written_media = set()
+        # what the last generateNotes() or updateNotes() changed
+        self.changes = None
         loadConfig(self)
 
     def generateNotes(self) -> Union[list, bool]:
@@ -111,7 +134,7 @@ class ImgOccNoteGenerator(object):
         try:
             return self._generateNotes()
         finally:
-            end_undo_group(mw.col, token)
+            self.changes = end_undo_group(mw.col, token)
 
     def _generateNotes(self) -> Union[list, bool]:
         self.uniq_id = str(uuid.uuid4()).replace("-", "")
@@ -138,6 +161,7 @@ class ImgOccNoteGenerator(object):
                 omask_path, qmasks[nr], amasks[nr], img, note_id
             )
             notes.append(note)
+        schedule_media_cleanup(self._written_media)
         tooltip(
             ngettext(
                 "One card <b>added</b>", "{card_count} cards <b>added</b>", len(qmasks)
@@ -152,7 +176,7 @@ class ImgOccNoteGenerator(object):
         try:
             return self._updateNotes()
         finally:
-            end_undo_group(mw.col, token)
+            self.changes = end_undo_group(mw.col, token)
 
     def _updateNotes(self):
         state = "default"
@@ -205,6 +229,8 @@ class ImgOccNoteGenerator(object):
                 )
             else:
                 self._saveMaskAndReturnNote(None, None, None, img, note_id, nid)
+        if state == "reset" or del_count:
+            schedule_media_cleanup(self._previous_media | self._written_media)
         self._showUpdateTooltip(del_count, new_count)
         return state
 
@@ -219,7 +245,7 @@ class ImgOccNoteGenerator(object):
             ttip += ngettext(
                 "<br>One existing card <b>deleted</b>",
                 "<br>{card_count} existing cards <b>deleted</b>",
-                upd_count,
+                del_count,
             ).format(card_count=del_count)
         if new_count > 0:
             ttip += ngettext(
@@ -237,15 +263,7 @@ class ImgOccNoteGenerator(object):
 
     def _layerNodesFrom(self, svg_node):
         """Get layer nodes (topmost group nodes below the SVG node)"""
-        assert svg_node.nodeType == svg_node.ELEMENT_NODE
-        assert svg_node.nodeName == "svg"
-        layer_nodes = [
-            node for node in svg_node.childNodes if node.nodeType == node.ELEMENT_NODE
-        ]
-        assert len(layer_nodes) >= 1
-        # last, i.e. top-most element, needs to be a layer:
-        assert layer_nodes[-1].nodeName == "g"
-        return layer_nodes
+        return layer_nodes(svg_node)
 
     def _getMnodesAndSetIds(self, edit=False):
         """Find mask nodes in masks layer and read/set node IDs"""
@@ -339,9 +357,15 @@ class ImgOccNoteGenerator(object):
         old_occl_id = "%s-%s" % (self.uniq_id, self.opref["occl_tp"])
         res = self._findByNoteId(old_occl_id)
         self.nids = {}
+        self._previous_media = set()
         for nid in res:
-            note_id = get_note(mw.col, nid)[self.ioflds["id"]]
+            note = get_note(mw.col, nid)
+            note_id = note[self.ioflds["id"]]
             self.nids[note_id] = nid
+            for key in ("qm", "am", "om"):
+                name = img_element_to_path(note[self.ioflds[key]], nameonly=True)
+                if name:
+                    self._previous_media.add(name)
         logger.debug("--------------------")
         logger.debug("res %s", res)
         logger.debug("nids %s", self.nids)
@@ -466,27 +490,15 @@ class ImgOccNoteGenerator(object):
         return masks
 
     def _createMask(self, side, mask_node_index):
-        """Call occl_tp-specific mask generator"""
-        mask_doc = minidom.parseString(self.new_svg.encode("utf-8"))
-        svg_node = mask_doc.documentElement
-        layer_nodes = self._layerNodesFrom(svg_node)
-        mlayer_node = layer_nodes[-1]  # treat topmost layer as masks layer
-        # This method gets implemented differently by subclasses
-        self._createMaskAtLayernode(side, mask_node_index, mlayer_node)
-        return svg_node.toxml()
-
-    def _createMaskAtLayernode(self, mask_node_index, mlayer_node):
-        raise NotImplementedError
-
-    def _setQuestionAttribs(self, node):
-        """Set question node color and class"""
-        if node.nodeType == node.ELEMENT_NODE and node.tagName != "text":
-            # set question class
-            node.setAttribute("class", "qshape")
-            if node.hasAttribute("fill"):
-                # set question color
-                node.setAttribute("fill", self.qfill)
-            list(map(self._setQuestionAttribs, node.childNodes))
+        """The question ("Q") or answer ("A") mask of one card"""
+        return build_mask(
+            self.new_svg,
+            self.occl_tp,
+            side,
+            self.mnode_indexes,
+            mask_node_index,
+            self.qfill,
+        )
 
     def _removeAttribsRecursively(self, node, attrs):
         """Remove provided attributes recursively from node and children"""
@@ -497,19 +509,18 @@ class ImgOccNoteGenerator(object):
             for i in node.childNodes:
                 self._removeAttribsRecursively(i, attrs)
 
-    def _saveMask(self, mask, note_id, mtype):
+    def _saveMask(self, mask, base_id, mtype):
         """Write mask to file in media collection"""
         logger.debug(
-            _("!saving %(note_id)s, %(mtype)s"), {"note_id": note_id, "mtype": mtype}
+            _("!saving %(note_id)s, %(mtype)s"), {"note_id": base_id, "mtype": mtype}
         )
-        mask_filename = "%s-%s.svg" % (note_id, mtype)
-        mask_path = os.path.join(self._media_path, mask_filename)
-        mask_data = mask.encode("utf8")
+        name = mask_file_name(base_id, self.revision, mtype)
+        name = mw.col.media.write_data(name, mask.encode("utf8"))
+        self._written_media.add(name)
+        return name
 
-        with open(mask_path, "wb") as f:
-            f.write(mask_data)
-
-        return mask_filename
+    def _saveAnswerMask(self, amask, note_id):
+        return self._saveMask(amask, note_id, "A")
 
     def removeBlanks(self, node):
         for x in node.childNodes:
@@ -528,7 +539,7 @@ class ImgOccNoteGenerator(object):
         if omask_path:
             # Occlusions updated
             qmask_path = self._saveMask(qmask, note_id, "Q")
-            amask_path = self._saveMask(amask, note_id, "A")
+            amask_path = self._saveAnswerMask(amask, note_id)
             fields[self.ioflds["qm"]] = path_to_img_element(qmask_path)
             fields[self.ioflds["am"]] = path_to_img_element(amask_path)
             fields[self.ioflds["om"]] = path_to_img_element(omask_path)
@@ -567,14 +578,7 @@ class IoGenHideAllRevealOne(ImgOccNoteGenerator):
     ('nonoverlapping' / "Hide all, guess one")
     """
 
-    occl_tp = "ao"
-
-    def _createMaskAtLayernode(self, side, mask_node_index, mlayer_node):
-        mask_node = mlayer_node.childNodes[mask_node_index]
-        if side == "Q":
-            self._setQuestionAttribs(mask_node)
-        elif side == "A":
-            mlayer_node.removeChild(mask_node)
+    occl_tp = HIDE_ALL_GUESS_ONE
 
 
 class IoGenHideOneRevealAll(ImgOccNoteGenerator):
@@ -583,13 +587,122 @@ class IoGenHideOneRevealAll(ImgOccNoteGenerator):
     ("overlapping" / "Hide one, guess one")
     """
 
-    occl_tp = "oa"
+    occl_tp = HIDE_ONE_GUESS_ONE
 
-    def _createMaskAtLayernode(self, side, mask_node_index, mlayer_node):
-        for i in reversed(self.mnode_indexes):
-            mask_node = mlayer_node.childNodes[i]
-            if i == mask_node_index and side == "Q":
-                self._setQuestionAttribs(mask_node)
-                mask_node.setAttribute("class", "qshape")
-            else:
-                mlayer_node.removeChild(mask_node)
+    def _saveAnswerMask(self, amask, note_id):
+        # Every card's answer is the image with no masks, so one file serves
+        # all of them instead of a copy per card.
+        if self._shared_answer is None:
+            self._shared_answer = self._saveMask(amask, self.occl_id, "A")
+        return self._shared_answer
+
+
+class IoGenHideAllGuessAll(ImgOccNoteGenerator):
+    """
+    Q: All hidden, all prompted for. A: All revealed
+    ("Hide all, guess all": a single card for the whole image)
+    """
+
+    occl_tp = HIDE_ALL_GUESS_ALL
+
+    def _wholeImageNoteId(self):
+        return "%s-%d" % (self.occl_id, WHOLE_IMAGE_NOTE_NR)
+
+    def _generateNotes(self) -> Union[list, bool]:
+        self.uniq_id = str(uuid.uuid4()).replace("-", "")
+        self.occl_id = "%s-%s" % (self.uniq_id, self.occl_tp)
+
+        (svg_node, layer_node) = self._getMnodesAndSetIds()
+        if not self.mnode_ids:
+            tooltip(
+                _("No cards to generate.<br>Are you sure you set your masks correctly?")
+            )
+            return False
+
+        self.new_svg = svg_node.toxml()  # write changes to svg
+        omask_path = self._saveMask(self.new_svg, self.occl_id, "O")
+        qmask = self._createMask("Q", None)
+        amask = self._createMask("A", None)
+        image_path = mw.col.media.add_file(self.image_path)
+        img = path_to_img_element(image_path)
+        note = self._saveMaskAndReturnNote(
+            omask_path, qmask, amask, img, self._wholeImageNoteId()
+        )
+        schedule_media_cleanup(self._written_media)
+        tooltip(_("One card <b>added</b>"), parent=None)
+        return [note]
+
+    def _updateNotes(self):
+        state = "default"
+        self.uniq_id = self.opref["uniq_id"]
+        self.occl_id = "%s-%s" % (self.uniq_id, self.occl_tp)
+        note_id = self._wholeImageNoteId()
+
+        self._findAllNotes()
+        (svg_node, mlayer_node) = self._getMnodesAndSetIds(True)
+        if not self.mnode_ids:
+            tooltip(
+                _(
+                    "No shapes left. You can't delete all cards.<br>"
+                    "Are you sure you set your masks correctly?"
+                )
+            )
+            return False
+        # With one card for the whole image there are no notes the masks need
+        # to stay in step with, so they are simply numbered in order.
+        for nr, idx in enumerate(self.mnode_indexes, 1):
+            mask_id = "%s-%d" % (self.occl_id, nr)
+            mlayer_node.childNodes[idx].setAttribute("id", mask_id)
+            self.mnode_ids[idx] = mask_id
+
+        nid = self.nids.get(note_id)
+        replaced = [
+            old_nid for old_id, old_nid in self.nids.items() if old_id != note_id
+        ]
+        if replaced:
+            # switching from a card per mask: those cards make way for one
+            q = _(
+                "This will <b>delete {del_count} card(s)</b> and "
+                "<b>create {new_count} new one(s)</b>. "
+                "Please note that this action is irreversible.<br><br>"
+                "Would you still like to proceed?"
+            ).format(del_count=len(replaced), new_count=0 if nid else 1)
+            if not ioAskUser(
+                "custom",
+                text=q,
+                title=_("Please confirm action"),
+                parent=self.ed.imgoccadd.imgoccedit,
+                help="edit",
+            ):
+                return False
+            remove_notes(mw.col, replaced)
+
+        self.new_svg = svg_node.toxml()  # write changes to svg
+        old_svg = self._getOriginalSvg()
+        changed = self.new_svg != old_svg or self.occl_tp != self.opref["occl_tp"]
+        if nid is None or changed:
+            omask_path = self._saveMask(self.new_svg, self.occl_id, "O")
+            qmask = self._createMask("Q", None)
+            amask = self._createMask("A", None)
+            state = "reset"
+        else:
+            omask_path = qmask = amask = None
+
+        image_path = mw.col.media.add_file(self.image_path)
+        img = path_to_img_element(image_path)
+        self._saveMaskAndReturnNote(omask_path, qmask, amask, img, note_id, nid)
+        if state == "reset" or replaced:
+            schedule_media_cleanup(self._previous_media | self._written_media)
+
+        if nid is None:
+            ttip = _("One new card <b>created</b>")
+        else:
+            ttip = _("One old card <b>edited in place</b>")
+        if replaced:
+            ttip += ngettext(
+                "<br>One existing card <b>deleted</b>",
+                "<br>{card_count} existing cards <b>deleted</b>",
+                len(replaced),
+            ).format(card_count=len(replaced))
+        tooltip(ttip, parent=self.ed.parentWindow)
+        return state

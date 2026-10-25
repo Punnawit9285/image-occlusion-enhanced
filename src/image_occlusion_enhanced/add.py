@@ -34,6 +34,8 @@
 Add notes.
 """
 
+import html
+import json
 import os
 import tempfile
 
@@ -47,21 +49,76 @@ from .compat import (
     deck_chooser_of,
     field_names,
     note_type_of,
-    refresh_main_window,
+    notify_changes,
     selected_deck_id,
     showWarning,
 )
 from .config import *
 from .consts import SUPPORTED_EXTENSIONS
-from .dialogs import ioCritical, ioInfo
+from .dialogs import OCR_INSTALL, ioCritical, ioInfo
 from .editor import ImgOccEdit
-from .lang import _
+from .lang import _, ngettext
 from .ngen import *
+from . import ocr
 from .utils import get_image_dimensions, img_element_to_path, path_to_url
 from .logger import logger
 from .theme import isNightMode
 
 SVG_ERROR_PREFIX = "__IO_SVG_ERROR__:"
+
+# Adds a mask over each box (left, top, width, height) that no mask covers
+# yet, as a single step that Undo takes back. Returns the number added.
+MASK_TEXT_JS = """
+(function (boxes, defaultFill) {
+    var drawing = svgCanvas.getCurrentDrawing();
+    if (drawing.getLayerName && svgCanvas.setCurrentLayer) {
+        for (var i = 0; i < drawing.getNumLayers(); i++) {
+            if (drawing.getLayerName(i) === "Masks") {
+                svgCanvas.setCurrentLayer("Masks");
+            }
+        }
+    }
+    var layer = drawing.getCurrentLayer();
+    var covers = [];
+    for (var node = layer.firstElementChild; node; node = node.nextElementSibling) {
+        if (["title", "text", "desc"].indexOf(node.nodeName) !== -1) continue;
+        try { covers.push(node.getBBox()); } catch (e) {}
+    }
+    function covered(box) {
+        var area = box[2] * box[3];
+        return covers.some(function (c) {
+            var w = Math.min(box[0] + box[2], c.x + c.width) - Math.max(box[0], c.x);
+            var h = Math.min(box[1] + box[3], c.y + c.height) - Math.max(box[1], c.y);
+            return w > 0 && h > 0 && w * h > 0.5 * area;
+        });
+    }
+    var fill = svgCanvas.getColor("fill");
+    if (!fill || fill === "none") fill = defaultFill;
+    var stroke = svgCanvas.getColor("stroke") || "none";
+    var strokeWidth = svgCanvas.getStrokeWidth();
+    var batch = new svgedit.history.BatchCommand("Mask text");
+    var added = 0;
+    boxes.forEach(function (box) {
+        if (covered(box)) return;
+        var rect = svgCanvas.addSvgElementFromJson({
+            element: "rect",
+            curStyles: false,
+            attr: {
+                id: svgCanvas.getNextId(),
+                x: box[0], y: box[1], width: box[2], height: box[3],
+                fill: fill, stroke: stroke, "stroke-width": strokeWidth,
+                opacity: 1
+            }
+        });
+        batch.addSubCommand(new svgedit.history.InsertElementCommand(rect));
+        covers.push({x: box[0], y: box[1], width: box[2], height: box[3]});
+        added++;
+    });
+    if (!batch.isEmpty()) svgCanvas.undoMgr.addCommandToHistory(batch);
+    svgCanvas.clearSelection();
+    return added;
+})(%s, %s)
+"""
 
 SVG_EXPORT_JS = """
 (function () {
@@ -150,7 +207,7 @@ class ImgOccAdd(object):
         self.callImgOccEdit(width, height)
 
     def setPreservedAttrs(self, note):
-        # FIXME: Not necessarily up-to-date with new tag edit contents
+        # current, as the editor saves before Image Occlusion is opened
         self.opref["tags"] = note.tags
         if self.origin == "addcards":
             self.opref["did"] = selected_deck_id(
@@ -343,6 +400,113 @@ class ImgOccAdd(object):
         )
         self.image_path = image_path
 
+    def onMaskText(self):
+        """Cover the text labels found in the image with masks"""
+        dialog = self.imgoccedit
+        lconf = getLocalConfig()
+        engine = ocr.available_engine(
+            lconf.get("ocr_tesseract", ""), lconf.get("ocr_languages", "")
+        )
+        if engine is None:
+            ioInfo("ocr_missing", parent=dialog)
+            return
+        image_path = self.image_path
+        try:
+            width, height = get_image_dimensions(image_path)
+        except ValueError as e:
+            showWarning(str(e), parent=dialog)
+            return
+
+        def find():
+            path, scale, temporary = self._ocrImage(image_path, width, height)
+            try:
+                return ocr.find_labels(engine, path, width, height, scale)
+            finally:
+                if temporary:
+                    os.remove(path)
+
+        def done(future):
+            if dialog.svg_edit is None:
+                return  # editor closed in the meantime
+            try:
+                boxes = future.result()
+            except Exception as e:
+                logger.warning("text recognition failed: %s", e)
+                ioCritical(
+                    "custom",
+                    text=_(
+                        "<b>Could not look for text in the image.</b><br><br>"
+                        "{engine} reported: <i>{error}</i>"
+                    ).format(engine=engine.name, error=html.escape(str(e)))
+                    + "<br><br>"
+                    + OCR_INSTALL,
+                    parent=dialog,
+                )
+                return
+            if not boxes:
+                tooltip(_("No text found in the image."), parent=dialog)
+                return
+            fill = json.dumps("#" + self.sconf["ofill"])
+            dialog.svg_edit.evalWithCallback(
+                MASK_TEXT_JS % (json.dumps(boxes), fill),
+                lambda added: self._onTextMasked(added, len(boxes)),
+            )
+
+        mw.taskman.with_progress(
+            find, done, label=_("Looking for text..."), parent=dialog
+        )
+
+    @staticmethod
+    def _ocrImage(image_path, width, height):
+        """A PNG copy of the image for text recognition, enlarged if small,
+        since recognition copes badly with small text.
+
+        Returns the path, the scale of the copy, and whether the copy is a
+        temporary file.
+        """
+        scale = 2 if max(width, height) < 1600 else 1
+        from aqt.qt import QImage
+
+        picture = QImage(image_path)
+        if picture.isNull():
+            # e.g. an SVG Qt cannot draw; the engines read PNG and JPEG
+            return image_path, 1, False
+        if scale != 1:
+            picture = picture.scaled(
+                int(width * scale),
+                int(height * scale),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            picture = picture.scaled(
+                int(width),
+                int(height),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        handle, path = tempfile.mkstemp(suffix=".png")
+        os.close(handle)
+        if not picture.save(path, "PNG"):
+            os.remove(path)
+            return image_path, 1, False
+        return path, scale, True
+
+    def _onTextMasked(self, added, found):
+        added = added or 0
+        if added == 0:
+            tooltip(
+                _("All text in the image is already covered."),
+                parent=self.imgoccedit,
+            )
+            return
+        message = ngettext(
+            "Covered one label.", "Covered {count} labels.", added
+        ).format(count=added)
+        if added < found:
+            message += " " + _("Text that already had a mask was left alone.")
+        tooltip(message, parent=self.imgoccedit)
+
     def onAddNotesButton(self, choice, close):
         dialog = self.imgoccedit
         # If the user is in in-group editing mode (i.e. editing a shape that
@@ -397,7 +561,7 @@ class ImgOccAdd(object):
         if close:
             dialog.close()
 
-        refresh_main_window()
+        notify_changes(gen.changes)
 
     def onEditNotesButton(self, choice):
         dialog = self.imgoccedit
@@ -429,69 +593,11 @@ class ImgOccAdd(object):
         r = gen.updateNotes()
         if r is False:
             return False
-
-        if r != "reset":
-            # no media cache/collection reset required
-            dialog.close()
-
-        else:
-            # Refresh image cache. We need to do this in order to refresh image
-            # display across all web views the images could be presented in.
-            # (i.e. cache-busting IO images in the reviewer alone via JS is not
-            # sufficient)
-            try:
-                mw.web.page().profile().clearHttpCache()
-            except Exception as e:
-                # Stale images may linger until restart; not worth failing
-                # an edit that has already been saved.
-                logger.warning("could not clear web cache: %s", e)
-            dialog.close()
-
-            # write a dummy file to update collection.media modtime and
-            # force sync
-            media_dir = mw.col.media.dir()
-            fpath = os.path.join(media_dir, "syncdummy.txt")
-            if not os.path.isfile(fpath):
-                with open(fpath, "w") as f:
-                    f.write("io sync dummy")
-            os.remove(fpath)
-
-        def refresh_editor():
-            # FIXME: Incredibly ugly hack to refresh editor web view in order to make
-            # changes to images visible
-            ed = self.ed
-            # These are editor internals rather than public API. Only tear the
-            # web view down if every piece needed to rebuild it is present, so
-            # a future Anki cannot leave the editor half-dismantled; a plain
-            # note reload still shows the new masks.
-            web = getattr(ed, "web", None)
-            if (
-                web is not None
-                and hasattr(ed, "outerLayout")
-                and hasattr(ed, "setupWeb")
-                and hasattr(web, "stdHtml")
-            ):
-                ed.outerLayout.removeWidget(web)
-                web.reload()
-                web.stdHtml("")
-                ed.setupWeb()
-            ed.loadNote()
-
-        refresh_editor()
-
-        def refresh_reviewer():
-            # FIXME: Incredibly ugly hack to refresh reviewer web view in  order to make
-            # changes to images visible. Other solutions like
-            # reviewer._initWeb(); reviewer._showQuestion() do not seem to work reliably
-            if not hasattr(mw, "moveToState"):
-                return
-            mw.moveToState("overview")
-            mw.progress.single_shot(100, lambda: mw.moveToState("review"))
-
-        refresh_main_window()
-
-        if mw.state == "review":
-            mw.progress.single_shot(100, refresh_reviewer)
+        dialog.close()
+        # Edited masks are saved under new file names, so the reviewer, the
+        # browser and open editors only need to show the notes again; no web
+        # view can still have the old masks cached under those names.
+        notify_changes(gen.changes)
 
     def _checkSvg(self, svg, dialog):
         """Report a failed mask export instead of crashing further down.
